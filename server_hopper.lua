@@ -29,19 +29,47 @@ end
 -- ==================== SCRIPT LOADER ====================
 local function loadMainScript()
     print("[HOPPER] Loading main script from: " .. MAIN_SCRIPT_URL)
-    local success, err = pcall(function()
-        local scriptContent = game:HttpGet(MAIN_SCRIPT_URL)
-        local loadFunc = loadstring(scriptContent)
-        if loadFunc then
-            loadFunc()
-            print("[HOPPER] Main script loaded successfully!")
-        else
-            warn("[HOPPER] Failed to load main script!")
-        end
-    end)
     
-    if not success then
-        warn("[HOPPER] Error loading script: " .. tostring(err))
+    local MAX_ATTEMPTS = 10  -- Попыток загрузки
+    local DELAY_BETWEEN = 2  -- Секунд между попытками
+    local successCount = 0
+    
+    for attempt = 1, MAX_ATTEMPTS do
+        print("[HOPPER] Injection attempt " .. attempt .. "/" .. MAX_ATTEMPTS)
+        
+        local success, err = pcall(function()
+            local scriptContent = game:HttpGet(MAIN_SCRIPT_URL)
+            if scriptContent and #scriptContent > 100 then  -- Проверка что скрипт загрузился
+                local loadFunc = loadstring(scriptContent)
+                if loadFunc then
+                    loadFunc()
+                    successCount = successCount + 1
+                    print("[HOPPER] ✓ Injection #" .. attempt .. " SUCCESS!")
+                    return true
+                else
+                    warn("[HOPPER] ✗ Failed to compile script on attempt " .. attempt)
+                end
+            else
+                warn("[HOPPER] ✗ Script content too short or empty on attempt " .. attempt)
+            end
+        end)
+        
+        if not success then
+            warn("[HOPPER] ✗ Error on attempt " .. attempt .. ": " .. tostring(err))
+        end
+        
+        -- Задержка между попытками (кроме последней)
+        if attempt < MAX_ATTEMPTS then
+            task.wait(DELAY_BETWEEN)
+        end
+    end
+    
+    print("[HOPPER] ========================================")
+    print("[HOPPER] Injection complete: " .. successCount .. "/" .. MAX_ATTEMPTS .. " successful")
+    print("[HOPPER] ========================================")
+    
+    if successCount == 0 then
+        warn("[HOPPER] WARNING: All injection attempts failed!")
     end
 end
 
