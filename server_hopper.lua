@@ -103,7 +103,7 @@ local function serverHop()
                     -- Queue this hopper script to run again after teleport
                     local queueScript = string.format(
                         'task.wait(2); loadstring(game:HttpGet("%s"))()',
-                        "PUT_YOUR_GITHUB_URL_HERE"  -- ← ЗАМЕНИТЕ ЭТО НА ССЫЛКУ GITHUB ЭТОГО ФАЙЛА (server_hopper.lua)
+                        "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua"  -- ← ЗАМЕНИТЕ ЭТО НА ССЫЛКУ GITHUB ЭТОГО ФАЙЛА (server_hopper.lua)
                     )
                     queueFunc(queueScript)
                     
