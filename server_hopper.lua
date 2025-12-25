@@ -8,7 +8,8 @@
 -- 4. Execute this script in Roblox
 
 -- ==================== CONFIGURATION ====================
-local MAIN_SCRIPT_URL = "https://raw.githubusercontent.com/Azura83/Murder-Mystery-2/refs/heads/main/Script.lua"  -- ← ВСТАВЬТЕ СЮДА ССЫЛКУ НА ВАШ ОСНОВНОЙ СКРИПТ
+local MAIN_SCRIPT_URL = "https://raw.githubusercontent.com/Azura83/Murder-Mystery-2/refs/heads/main/Script.lua"  -- ← Основной скрипт (MM2)
+local HOPPER_SCRIPT_URL = "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua"  -- ← ЗАМЕНИТЕ НА ВАШУ ССЫЛКУ ЭТОГО ФАЙЛА
 local PLACE_ID = 142823291     -- Murder Mystery 2 Place ID
 local MIN_PLAYERS = 5          -- Минимум игроков на сервере
 local MAX_PLAYERS_ALLOWED = 50 -- Максимум игроков на сервере
@@ -173,11 +174,7 @@ local function serverHop()
                     print("[HOPPER] Attempting to join server " .. selected.id .. " (" .. playing .. "/" .. maxP .. ")")
                     
                     -- Queue this hopper script to run again after teleport
-                    local queueScript = string.format(
-                        'task.wait(2); loadstring(game:HttpGet("%s"))()',
-                        "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua"  -- ← ЗАМЕНИТЕ ЭТО НА ССЫЛКУ GITHUB ЭТОГО ФАЙЛА (server_hopper.lua)
-                    )
-                    queueFunc(queueScript)
+                    queueFunc('loadstring(game:HttpGet("' .. HOPPER_SCRIPT_URL .. '"))()')
                     
                     -- Attempt teleport
                     local tpOk, err = pcall(function()
