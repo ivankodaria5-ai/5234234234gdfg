@@ -9,7 +9,7 @@
 
 -- ==================== CONFIGURATION ====================
 local MAIN_SCRIPT_URL = "https://raw.githubusercontent.com/Azura83/Murder-Mystery-2/refs/heads/main/Script.lua"  -- ← ВСТАВЬТЕ СЮДА ССЫЛКУ НА ВАШ ОСНОВНОЙ СКРИПТ
-local PLACE_ID = game.PlaceId  -- Automatically gets current game ID
+local PLACE_ID = 142823291     -- Murder Mystery 2 Place ID
 local MIN_PLAYERS = 5          -- Минимум игроков на сервере
 local MAX_PLAYERS_ALLOWED = 50 -- Максимум игроков на сервере
 local WAIT_TIME = 300          -- Время ожидания перед хопом (в секундах, 300 = 5 минут)
@@ -75,8 +75,12 @@ end
 
 -- ==================== SERVER HOP FUNCTION ====================
 local function serverHop()
+    print("[HOPPER] ========================================")
     print("[HOPPER] Starting server hop...")
+    print("[HOPPER] Place ID: " .. PLACE_ID)
+    print("[HOPPER] Current Server: " .. game.JobId)
     print("[HOPPER] Looking for servers with " .. MIN_PLAYERS .. "-" .. MAX_PLAYERS_ALLOWED .. " players")
+    print("[HOPPER] ========================================")
     
     local cursor = ""
     local hopped = false
@@ -88,12 +92,41 @@ local function serverHop()
             cursor ~= "" and "&cursor=" .. cursor or ""
         )
         
+        print("[HOPPER] Fetching: " .. url)
+        
         local success, response = pcall(function()
-            return httprequest({Url = url})
+            return httprequest({
+                Url = url,
+                Method = "GET"
+            })
         end)
         
-        if not success or not response then
-            warn("[HOPPER] HTTP request failed, retrying in 5s...")
+        if not success then
+            warn("[HOPPER] HTTP request error: " .. tostring(response))
+            task.wait(5)
+            cursor = ""
+            continue
+        end
+        
+        if not response then
+            warn("[HOPPER] No response received!")
+            task.wait(5)
+            cursor = ""
+            continue
+        end
+        
+        if not response.Body then
+            warn("[HOPPER] Response has no body!")
+            task.wait(5)
+            cursor = ""
+            continue
+        end
+        
+        local statusCode = response.StatusCode or 0
+        print("[HOPPER] Status Code: " .. statusCode)
+        
+        if statusCode ~= 200 then
+            warn("[HOPPER] Bad status code: " .. statusCode)
             task.wait(5)
             cursor = ""
             continue
@@ -103,7 +136,18 @@ local function serverHop()
             return HttpService:JSONDecode(response.Body) 
         end)
         
+        if not bodySuccess then
+            warn("[HOPPER] JSON Parse Error: " .. tostring(body))
+            if response.Body then
+                warn("[HOPPER] Response preview: " .. response.Body:sub(1, 200))
+            end
+            task.wait(5)
+            cursor = ""
+            continue
+        end
+        
         if bodySuccess and body and body.data then
+            print("[HOPPER] ✓ Received " .. #body.data .. " servers")
             local servers = {}
             
             -- Collect suitable servers
