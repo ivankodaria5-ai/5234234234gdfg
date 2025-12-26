@@ -235,21 +235,37 @@ if not player.Character then
     task.wait(2)
 end
 
--- Load the main script in a separate thread (non-blocking)
+-- Start the hop timer IMMEDIATELY (separate from script loading)
+local hopStartTime = tick()
+local hopDeadline = hopStartTime + WAIT_TIME
+
+-- Load the main script in a separate thread (completely non-blocking)
 task.spawn(function()
     loadMainScript()
 end)
 
--- Wait a bit for script to initialize
-task.wait(5)
-
--- Wait before hopping
-print("[HOPPER] Main script is running...")
+-- Wait before hopping - check time periodically
+print("[HOPPER] Main script loading in background...")
 print("[HOPPER] Will hop to another server in " .. WAIT_TIME .. " seconds (" .. math.floor(WAIT_TIME/60) .. " minutes)")
-task.wait(WAIT_TIME)
+
+-- Wait loop that checks time instead of blocking wait
+local lastPrintedRemaining = -1
+while tick() < hopDeadline do
+    local remaining = math.floor(hopDeadline - tick())
+    
+    -- Print every 10 seconds (and avoid duplicate prints)
+    if remaining % 10 == 0 and remaining > 0 and remaining ~= lastPrintedRemaining then
+        print("[HOPPER] Time until hop: " .. remaining .. " seconds")
+        lastPrintedRemaining = remaining
+    end
+    
+    task.wait(1)  -- Check every second
+end
 
 -- Hop to another server
+print("[HOPPER] ========================================")
 print("[HOPPER] Time's up! Hopping to another server...")
+print("[HOPPER] ========================================")
 serverHop()
 
 print("[HOPPER] Script finished")
