@@ -33,6 +33,7 @@ local function loadMainScript()
     
     local MAX_ATTEMPTS = 10  -- Попыток загрузки
     local DELAY_BETWEEN = 2  -- Секунд между попытками
+    local successCount = 0
     
     for attempt = 1, MAX_ATTEMPTS do
         print("[HOPPER] Injection attempt " .. attempt .. "/" .. MAX_ATTEMPTS)
@@ -43,7 +44,7 @@ local function loadMainScript()
                 local loadFunc = loadstring(scriptContent)
                 if loadFunc then
                     loadFunc()
-                    print("[HOPPER] ✓ Injection SUCCESS!")
+                    print("[HOPPER] ✓ Injection #" .. attempt .. " SUCCESS!")
                     return true
                 else
                     warn("[HOPPER] ✗ Failed to compile script on attempt " .. attempt)
@@ -54,10 +55,7 @@ local function loadMainScript()
         end)
         
         if success then
-            print("[HOPPER] ========================================")
-            print("[HOPPER] Main script loaded successfully!")
-            print("[HOPPER] ========================================")
-            return true
+            successCount = successCount + 1
         else
             warn("[HOPPER] ✗ Error on attempt " .. attempt .. ": " .. tostring(err))
         end
@@ -68,10 +66,16 @@ local function loadMainScript()
         end
     end
     
-    warn("[HOPPER] ========================================")
-    warn("[HOPPER] WARNING: All injection attempts failed!")
-    warn("[HOPPER] ========================================")
-    return false
+    print("[HOPPER] ========================================")
+    print("[HOPPER] Injection complete: " .. successCount .. "/" .. MAX_ATTEMPTS .. " successful")
+    print("[HOPPER] ========================================")
+    
+    if successCount == 0 then
+        warn("[HOPPER] WARNING: All injection attempts failed!")
+        return false
+    end
+    
+    return true
 end
 
 -- ==================== SERVER HOP FUNCTION ====================
