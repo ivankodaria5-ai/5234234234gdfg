@@ -33,7 +33,6 @@ local function loadMainScript()
     
     local MAX_ATTEMPTS = 10  -- Попыток загрузки
     local DELAY_BETWEEN = 2  -- Секунд между попытками
-    local successCount = 0
     
     for attempt = 1, MAX_ATTEMPTS do
         print("[HOPPER] Injection attempt " .. attempt .. "/" .. MAX_ATTEMPTS)
@@ -44,8 +43,7 @@ local function loadMainScript()
                 local loadFunc = loadstring(scriptContent)
                 if loadFunc then
                     loadFunc()
-                    successCount = successCount + 1
-                    print("[HOPPER] ✓ Injection #" .. attempt .. " SUCCESS!")
+                    print("[HOPPER] ✓ Injection SUCCESS!")
                     return true
                 else
                     warn("[HOPPER] ✗ Failed to compile script on attempt " .. attempt)
@@ -55,7 +53,12 @@ local function loadMainScript()
             end
         end)
         
-        if not success then
+        if success then
+            print("[HOPPER] ========================================")
+            print("[HOPPER] Main script loaded successfully!")
+            print("[HOPPER] ========================================")
+            return true
+        else
             warn("[HOPPER] ✗ Error on attempt " .. attempt .. ": " .. tostring(err))
         end
         
@@ -65,13 +68,10 @@ local function loadMainScript()
         end
     end
     
-    print("[HOPPER] ========================================")
-    print("[HOPPER] Injection complete: " .. successCount .. "/" .. MAX_ATTEMPTS .. " successful")
-    print("[HOPPER] ========================================")
-    
-    if successCount == 0 then
-        warn("[HOPPER] WARNING: All injection attempts failed!")
-    end
+    warn("[HOPPER] ========================================")
+    warn("[HOPPER] WARNING: All injection attempts failed!")
+    warn("[HOPPER] ========================================")
+    return false
 end
 
 -- ==================== SERVER HOP FUNCTION ====================
@@ -231,8 +231,13 @@ if not player.Character then
     task.wait(2)
 end
 
--- Load the main script
-loadMainScript()
+-- Load the main script in a separate thread (non-blocking)
+task.spawn(function()
+    loadMainScript()
+end)
+
+-- Wait a bit for script to initialize
+task.wait(5)
 
 -- Wait before hopping
 print("[HOPPER] Main script is running...")
