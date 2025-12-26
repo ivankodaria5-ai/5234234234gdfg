@@ -13,7 +13,7 @@ local HOPPER_SCRIPT_URL = "https://raw.githubusercontent.com/ivankodaria5-ai/523
 local PLACE_ID = 142823291     -- Murder Mystery 2 Place ID
 local MIN_PLAYERS = 1          -- Минимум игроков на сервере (изменено с 5 на 1)
 local MAX_PLAYERS_ALLOWED = 12 -- Максимум игроков на сервере (изменено с 50 на 12)
-local WAIT_TIME = 60           -- Время ожидания перед хопом (в секундах)
+local WAIT_TIME = 3600         -- Время ожидания перед хопом (в секундах) - 3600 = 1 час
 
 -- ==================== SERVICES ====================
 local Players = game:GetService("Players")
