@@ -259,11 +259,13 @@ local hopDeadline = hopStartTime + WAIT_TIME
 
 -- Load the main script in a separate thread (completely non-blocking)
 task.spawn(function()
+    print("[HOPPER] Waiting 10 seconds before loading main script...")
+    task.wait(10)  -- Задержка 10 секунд перед загрузкой скрипта
     loadMainScript()
 end)
 
 -- Wait before hopping - check time periodically
-print("[HOPPER] Main script loading in background...")
+print("[HOPPER] Main script will load in 10 seconds...")
 print("[HOPPER] Will hop to another server in " .. WAIT_TIME .. " seconds (" .. math.floor(WAIT_TIME/60) .. " minutes)")
 
 -- Wait loop that checks time instead of blocking wait
