@@ -11,9 +11,9 @@
 local MAIN_SCRIPT_URL = "https://raw.githubusercontent.com/Azura83/Murder-Mystery-2/refs/heads/main/Script.lua"  -- ← Основной скрипт (MM2)
 local HOPPER_SCRIPT_URL = "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua"  -- ← ЗАМЕНИТЕ НА ВАШУ ССЫЛКУ ЭТОГО ФАЙЛА
 local PLACE_ID = 142823291     -- Murder Mystery 2 Place ID
-local MIN_PLAYERS = 5          -- Минимум игроков на сервере
-local MAX_PLAYERS_ALLOWED = 50 -- Максимум игроков на сервере
-local WAIT_TIME = 60         -- Время ожидания перед хопом (в секундах, 7200 = 2 часа)
+local MIN_PLAYERS = 1          -- Минимум игроков на сервере (изменено с 5 на 1)
+local MAX_PLAYERS_ALLOWED = 12 -- Максимум игроков на сервере (изменено с 50 на 12)
+local WAIT_TIME = 60           -- Время ожидания перед хопом (в секундах)
 
 -- ==================== SERVICES ====================
 local Players = game:GetService("Players")
@@ -154,14 +154,32 @@ local function serverHop()
         if bodySuccess and body and body.data then
             print("[HOPPER] ✓ Received " .. #body.data .. " servers")
             local servers = {}
+            local skippedCount = 0
+            local currentServerSkipped = false
+            local tooFewPlayers = 0
+            local tooManyPlayers = 0
             
             -- Collect suitable servers
             for _, server in pairs(body.data) do
-                if server.id ~= game.JobId 
-                    and server.playing >= MIN_PLAYERS 
-                    and server.playing <= MAX_PLAYERS_ALLOWED then
+                if server.id == game.JobId then
+                    currentServerSkipped = true
+                elseif server.playing < MIN_PLAYERS then
+                    tooFewPlayers = tooFewPlayers + 1
+                    skippedCount = skippedCount + 1
+                elseif server.playing > MAX_PLAYERS_ALLOWED then
+                    tooManyPlayers = tooManyPlayers + 1
+                    skippedCount = skippedCount + 1
+                else
                     table.insert(servers, server)
                 end
+            end
+            
+            -- Print debug info
+            if skippedCount > 0 then
+                print("[HOPPER] Skipped: " .. tooFewPlayers .. " (too few players), " .. tooManyPlayers .. " (too many players)")
+            end
+            if currentServerSkipped then
+                print("[HOPPER] Current server found in list (skipped)")
             end
             
             -- Sort by player count (more players first)
@@ -170,7 +188,7 @@ local function serverHop()
             end)
             
             if #servers > 0 then
-                print("[HOPPER] Found " .. #servers .. " suitable servers")
+                print("[HOPPER] Found " .. #servers .. " suitable servers!")
                 
                 for _, selected in ipairs(servers) do
                     local playing = selected.playing or "?"
