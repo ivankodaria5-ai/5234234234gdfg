@@ -18,7 +18,7 @@ local CONFIG = {
     -- URL скрипта для автозагрузки после телепорта
     -- Если нужна автозагрузка - замени на свою ссылку с GitHub
     -- Если не нужна - оставь nil или закомментируй
-    SCRIPT_URL = nil  -- ЗАМЕНИ НА СВОЮ ССЫЛКУ или оставь nil
+    SCRIPT_URL = "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua"  -- ЗАМЕНИ НА СВОЮ ССЫЛКУ или оставь nil
 }
 
 -- ==================== СЕРВИСЫ ====================
