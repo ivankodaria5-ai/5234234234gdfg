@@ -1,292 +1,234 @@
--- ==================== SERVER HOPPER WITH AUTO-INJECT ====================
--- Automatically loads your script and hops between servers
--- 
--- SETUP INSTRUCTIONS:
--- 1. Upload this file to your GitHub
--- 2. Replace MAIN_SCRIPT_URL below with your Murder Mystery 2 script URL
--- 3. Adjust MIN_PLAYERS, MAX_PLAYERS, and WAIT_TIME as needed
--- 4. Execute this script in Roblox
+-- ==================== НАСТРОЙКИ ====================
+-- ИЗМЕНИТЕ ЭТИ ПАРАМЕТРЫ ПОД ВАШУ ИГРУ
+local CONFIG = {
+    -- ID игры (найдите в URL: roblox.com/games/PLACE_ID/)
+    PLACE_ID = 142823291,  -- ЗАМЕНИТЕ НА ID ВАШЕЙ ИГРЫ
+    
+    -- Параметры сервера для server hop
+    MIN_PLAYERS = 5,        -- Минимум игроков на сервере
+    MAX_PLAYERS = 30,       -- Максимум игроков на сервере
+    
+    -- Текст для отправки в чат
+    CHAT_MESSAGE = "S3ll ur Godlie with R B L X. PW",  -- ВАШЕ СООБЩЕНИЕ
+    
+    -- Интервалы (в секундах)
+    MESSAGE_INTERVAL = 5,   -- Интервал между сообщениями
+    TIME_BEFORE_HOP = 10,   -- Время работы перед сменой сервера (5 минут)
+    
+    -- URL скрипта для автозагрузки после телепорта
+    -- Если нужна автозагрузка - замени на свою ссылку с GitHub
+    -- Если не нужна - оставь nil или закомментируй
+    SCRIPT_URL = nil  -- ЗАМЕНИ НА СВОЮ ССЫЛКУ или оставь nil
+}
 
--- ==================== CONFIGURATION ====================
-local MAIN_SCRIPT_URL = "https://raw.githubusercontent.com/Azura83/Murder-Mystery-2/refs/heads/main/Script.lua"  -- ← Основной скрипт (MM2)
-local HOPPER_SCRIPT_URL = "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua"  -- ← ЗАМЕНИТЕ НА ВАШУ ССЫЛКУ ЭТОГО ФАЙЛА
-local PLACE_ID = 142823291     -- Murder Mystery 2 Place ID
-local MIN_PLAYERS = 1          -- Минимум игроков на сервере (изменено с 5 на 1)
-local MAX_PLAYERS_ALLOWED = 12 -- Максимум игроков на сервере (изменено с 50 на 12)
-local WAIT_TIME = 3600         -- Время ожидания перед хопом (в секундах) - 3600 = 1 час
-
--- ==================== SERVICES ====================
+-- ==================== СЕРВИСЫ ====================
 local Players = game:GetService("Players")
+local TextChatService = game:GetService("TextChatService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
 
--- ==================== HTTP REQUEST SETUP ====================
-local httprequest = (syn and syn.request) or http and http.request or http_request or (fluxus and fluxus.request) or request
-local queueFunc = queueonteleport or queue_on_teleport or (syn and syn.queue_on_teleport) or function() 
-    warn("[HOPPER] Queue not supported on this executor!") 
-end
+-- HTTP и Queue функции для разных эксплойтов
+local httprequest = (syn and syn.request) or 
+                    (http and http.request) or 
+                    http_request or 
+                    (fluxus and fluxus.request) or 
+                    request
 
--- ==================== SCRIPT LOADER ====================
-local function loadMainScript()
-    print("[HOPPER] Loading main script from: " .. MAIN_SCRIPT_URL)
+local queueFunc = queueonteleport or 
+                  queue_on_teleport or 
+                  (syn and syn.queue_on_teleport) or 
+                  function() warn("[HOP] Queue not supported!") end
+
+-- ==================== ФУНКЦИЯ ОТПРАВКИ В ЧАТ ====================
+local function sendChat(message)
+    print("[CHAT] Отправка: " .. message)
     
-    local MAX_ATTEMPTS = 10  -- Попыток загрузки
-    local DELAY_BETWEEN = 2  -- Секунд между попытками
-    local successCount = 0
-    
-    for attempt = 1, MAX_ATTEMPTS do
-        print("[HOPPER] Injection attempt " .. attempt .. "/" .. MAX_ATTEMPTS)
-        
-        local success, err = pcall(function()
-            local scriptContent = game:HttpGet(MAIN_SCRIPT_URL)
-            if scriptContent and #scriptContent > 100 then  -- Проверка что скрипт загрузился
-                local loadFunc = loadstring(scriptContent)
-                if loadFunc then
-                    loadFunc()
-                    print("[HOPPER] ✓ Injection #" .. attempt .. " SUCCESS!")
-                    return true
-                else
-                    warn("[HOPPER] ✗ Failed to compile script on attempt " .. attempt)
-                end
-            else
-                warn("[HOPPER] ✗ Script content too short or empty on attempt " .. attempt)
+    -- Попытка отправить через TextChatService (новый чат)
+    if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+        local success = pcall(function()
+            local channel = TextChatService.TextChannels:FindFirstChild("RBXGeneral")
+            if channel then
+                channel:SendAsync(message)
             end
         end)
-        
-        if success then
-            successCount = successCount + 1
-        else
-            warn("[HOPPER] ✗ Error on attempt " .. attempt .. ": " .. tostring(err))
-        end
-        
-        -- Задержка между попытками (кроме последней)
-        if attempt < MAX_ATTEMPTS then
-            task.wait(DELAY_BETWEEN)
-        end
+        if success then return end
     end
     
-    print("[HOPPER] ========================================")
-    print("[HOPPER] Injection complete: " .. successCount .. "/" .. MAX_ATTEMPTS .. " successful")
-    print("[HOPPER] ========================================")
-    
-    if successCount == 0 then
-        warn("[HOPPER] WARNING: All injection attempts failed!")
-        return false
-    end
-    
-    return true
+    -- Попытка отправить через Legacy Chat (старый чат)
+    local success = pcall(function()
+        local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+        if chatEvents then
+            local sayMessage = chatEvents:FindFirstChild("SayMessageRequest")
+            if sayMessage then
+                sayMessage:FireServer(message, "All")
+            end
+        end
+    end)
 end
 
--- ==================== SERVER HOP FUNCTION ====================
+-- ==================== ФУНКЦИЯ СМЕНЫ СЕРВЕРА ====================
 local function serverHop()
-    print("[HOPPER] ========================================")
-    print("[HOPPER] Starting server hop...")
-    print("[HOPPER] Place ID: " .. PLACE_ID)
-    print("[HOPPER] Current Server: " .. game.JobId)
-    print("[HOPPER] Looking for servers with " .. MIN_PLAYERS .. "-" .. MAX_PLAYERS_ALLOWED .. " players")
-    print("[HOPPER] ========================================")
+    print("[HOP] Начинаем поиск нового сервера...")
     
     local cursor = ""
     local hopped = false
     
     while not hopped do
+        -- Формируем URL для получения списка серверов
         local url = string.format(
             "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100%s",
-            PLACE_ID,
+            CONFIG.PLACE_ID,
             cursor ~= "" and "&cursor=" .. cursor or ""
         )
         
-        print("[HOPPER] Fetching: " .. url)
-        
+        -- Запрос к API Roblox
         local success, response = pcall(function()
-            return httprequest({
-                Url = url,
-                Method = "GET"
-            })
+            return httprequest({Url = url, Method = "GET"})
         end)
         
-        if not success then
-            warn("[HOPPER] HTTP request error: " .. tostring(response))
+        if not success or not response then
+            warn("[HOP] Ошибка HTTP запроса, повтор через 5 сек...")
             task.wait(5)
             cursor = ""
             continue
         end
         
-        if not response then
-            warn("[HOPPER] No response received!")
-            task.wait(5)
-            cursor = ""
-            continue
-        end
-        
-        if not response.Body then
-            warn("[HOPPER] Response has no body!")
-            task.wait(5)
-            cursor = ""
-            continue
-        end
-        
-        local statusCode = response.StatusCode or 0
-        print("[HOPPER] Status Code: " .. statusCode)
-        
-        if statusCode ~= 200 then
-            warn("[HOPPER] Bad status code: " .. statusCode)
-            task.wait(5)
-            cursor = ""
-            continue
-        end
-        
+        -- Парсим ответ
         local bodySuccess, body = pcall(function() 
             return HttpService:JSONDecode(response.Body) 
         end)
         
-        if not bodySuccess then
-            warn("[HOPPER] JSON Parse Error: " .. tostring(body))
-            if response.Body then
-                warn("[HOPPER] Response preview: " .. response.Body:sub(1, 200))
-            end
-            task.wait(5)
-            cursor = ""
-            continue
-        end
-        
         if bodySuccess and body and body.data then
-            print("[HOPPER] ✓ Received " .. #body.data .. " servers")
             local servers = {}
-            local skippedCount = 0
-            local currentServerSkipped = false
-            local tooFewPlayers = 0
-            local tooManyPlayers = 0
             
-            -- Collect suitable servers
+            -- Фильтруем серверы по параметрам
             for _, server in pairs(body.data) do
-                if server.id == game.JobId then
-                    currentServerSkipped = true
-                elseif server.playing < MIN_PLAYERS then
-                    tooFewPlayers = tooFewPlayers + 1
-                    skippedCount = skippedCount + 1
-                elseif server.playing > MAX_PLAYERS_ALLOWED then
-                    tooManyPlayers = tooManyPlayers + 1
-                    skippedCount = skippedCount + 1
-                else
+                if server.id ~= game.JobId 
+                    and server.playing >= CONFIG.MIN_PLAYERS 
+                    and server.playing <= CONFIG.MAX_PLAYERS then
                     table.insert(servers, server)
                 end
             end
             
-            -- Print debug info
-            if skippedCount > 0 then
-                print("[HOPPER] Skipped: " .. tooFewPlayers .. " (too few players), " .. tooManyPlayers .. " (too many players)")
-            end
-            if currentServerSkipped then
-                print("[HOPPER] Current server found in list (skipped)")
-            end
-            
-            -- Sort by player count (more players first)
+            -- Сортируем по количеству игроков (больше игроков = лучше)
             table.sort(servers, function(a, b) 
                 return (a.playing or 0) > (b.playing or 0) 
             end)
             
             if #servers > 0 then
-                print("[HOPPER] Found " .. #servers .. " suitable servers!")
+                print("[HOP] Найдено " .. #servers .. " подходящих серверов")
                 
-                for _, selected in ipairs(servers) do
-                    local playing = selected.playing or "?"
-                    local maxP = selected.maxPlayers or "?"
-                    print("[HOPPER] Attempting to join server " .. selected.id .. " (" .. playing .. "/" .. maxP .. ")")
+                -- Пробуем телепортироваться на первый подходящий сервер
+                for _, server in ipairs(servers) do
+                    local playing = server.playing or "?"
+                    local maxPlayers = server.maxPlayers or "?"
+                    print("[HOP] Подключение к серверу " .. server.id .. " (" .. playing .. "/" .. maxPlayers .. ")")
                     
-                    -- Queue this hopper script to run again after teleport
-                    queueFunc('loadstring(game:HttpGet("' .. HOPPER_SCRIPT_URL .. '"))()')
+                    -- Ставим скрипт в очередь для автозагрузки (если указан URL)
+                    if CONFIG.SCRIPT_URL and CONFIG.SCRIPT_URL ~= "" then
+                        print("[HOP] Автозагрузка включена: " .. CONFIG.SCRIPT_URL)
+                        queueFunc('loadstring(game:HttpGet("' .. CONFIG.SCRIPT_URL .. '"))()')
+                    else
+                        print("[HOP] Автозагрузка отключена (SCRIPT_URL не указан)")
+                    end
                     
-                    -- Attempt teleport
-                    local tpOk, err = pcall(function()
-                        TeleportService:TeleportToPlaceInstance(PLACE_ID, selected.id, player)
+                    -- Телепортируемся
+                    local tpSuccess, tpError = pcall(function()
+                        TeleportService:TeleportToPlaceInstance(
+                            CONFIG.PLACE_ID, 
+                            server.id, 
+                            player
+                        )
                     end)
                     
-                    if tpOk then
-                        print("[HOPPER] Teleport initiated! Waiting for transition...")
+                    if tpSuccess then
+                        print("[HOP] Телепортация начата! До встречи...")
                         hopped = true
-                        task.wait(15)  -- Wait for teleport to complete
+                        task.wait(15)  -- Ждем телепортацию
                         break
                     else
-                        warn("[HOPPER] Teleport failed: " .. tostring(err) .. " - trying next server...")
+                        warn("[HOP] Ошибка телепортации: " .. tostring(tpError))
                         task.wait(1)
                     end
                 end
             else
-                print("[HOPPER] No suitable servers on this page")
+                print("[HOP] На этой странице нет подходящих серверов")
             end
             
-            -- Check next page if available
+            -- Переход на следующую страницу
             if body.nextPageCursor and not hopped then
                 cursor = body.nextPageCursor
-                print("[HOPPER] Checking next page...")
-                task.wait(1)
+                print("[HOP] Проверяем следующую страницу...")
             else
                 if not hopped then
-                    warn("[HOPPER] No suitable servers found. Retrying in 10s...")
+                    warn("[HOP] Подходящих серверов не найдено. Повтор через 10 сек...")
                     task.wait(10)
                     cursor = ""
                 end
             end
         else
-            warn("[HOPPER] Failed to parse response, retrying in 5s...")
+            warn("[HOP] Ошибка парсинга ответа, повтор через 5 сек...")
             task.wait(5)
             cursor = ""
         end
     end
 end
 
--- ==================== MAIN EXECUTION ====================
-print("========================================")
-print("    SERVER HOPPER - AUTO INJECT")
-print("========================================")
-print("[HOPPER] Place ID: " .. PLACE_ID)
-print("[HOPPER] Current Server: " .. game.JobId)
-print("[HOPPER] Players in server: " .. #Players:GetPlayers())
-print("========================================")
-
--- Wait for character to load
-if not player.Character then
-    print("[HOPPER] Waiting for character...")
-    player.CharacterAdded:Wait()
-    task.wait(2)
-end
-
--- Start the hop timer IMMEDIATELY (separate from script loading)
-local hopStartTime = tick()
-local hopDeadline = hopStartTime + WAIT_TIME
-
--- Load the main script in a separate thread (completely non-blocking)
-task.spawn(function()
-    print("[HOPPER] Waiting 10 seconds before loading main script...")
-    task.wait(10)  -- Задержка 10 секунд перед загрузкой скрипта
-    loadMainScript()
-end)
-
--- Wait before hopping - check time periodically
-print("[HOPPER] Main script will load in 10 seconds...")
-print("[HOPPER] Will hop to another server in " .. WAIT_TIME .. " seconds (" .. math.floor(WAIT_TIME/60) .. " minutes)")
-
--- Wait loop that checks time instead of blocking wait
-local lastPrintedRemaining = -1
-while tick() < hopDeadline do
-    local remaining = math.floor(hopDeadline - tick())
+-- ==================== ОСНОВНАЯ ЛОГИКА ====================
+local function main()
+    print("=== ЧАТ-БОТ С АВТОСМЕНОЙ СЕРВЕРОВ ===")
+    print("=== Place ID: " .. CONFIG.PLACE_ID .. " ===")
+    print("=== Сообщение: '" .. CONFIG.CHAT_MESSAGE .. "' ===")
     
-    -- Print every 10 seconds (and avoid duplicate prints)
-    if remaining % 10 == 0 and remaining > 0 and remaining ~= lastPrintedRemaining then
-        print("[HOPPER] Time until hop: " .. remaining .. " seconds")
-        lastPrintedRemaining = remaining
+    -- Ждем загрузки персонажа
+    if not player.Character then
+        print("[MAIN] Ожидание загрузки персонажа...")
+        player.CharacterAdded:Wait()
+        task.wait(2)
     end
     
-    task.wait(1)  -- Check every second
+    print("[MAIN] Старт работы бота!")
+    
+    local startTime = tick()
+    local messageCount = 0
+    
+    -- Основной цикл: отправляем сообщения
+    while true do
+        -- Проверяем, не пора ли менять сервер
+        local elapsedTime = tick() - startTime
+        if elapsedTime >= CONFIG.TIME_BEFORE_HOP then
+            print("[MAIN] Время истекло (" .. math.floor(elapsedTime) .. " сек)")
+            print("[MAIN] Отправлено сообщений: " .. messageCount)
+            print("[MAIN] Переключаемся на другой сервер...")
+            serverHop()
+            break
+        end
+        
+        -- Отправляем сообщение в чат
+        sendChat(CONFIG.CHAT_MESSAGE)
+        messageCount = messageCount + 1
+        
+        -- Информация о прогрессе
+        local remaining = CONFIG.TIME_BEFORE_HOP - elapsedTime
+        print(string.format(
+            "[MAIN] Сообщений: %d | До смены сервера: %d сек", 
+            messageCount, 
+            math.floor(remaining)
+        ))
+        
+        -- Ждем до следующего сообщения
+        task.wait(CONFIG.MESSAGE_INTERVAL)
+    end
+    
+    print("=== БОТ ЗАВЕРШЕН ===")
 end
 
--- Hop to another server
-print("[HOPPER] ========================================")
-print("[HOPPER] Time's up! Hopping to another server...")
-print("[HOPPER] ========================================")
-serverHop()
-
-print("[HOPPER] Script finished")
+-- ==================== ЗАПУСК ====================
+-- Запускаем основную функцию с защитой от ошибок
+local success, error = pcall(main)
+if not success then
+    warn("[ERROR] Критическая ошибка: " .. tostring(error))
+end
 
