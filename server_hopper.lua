@@ -5,7 +5,7 @@ local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 
 -- Интервал переподключения в секундах (можно изменить)
-local RECONNECT_INTERVAL = 300 -- 5 минут (300 секунд)
+local RECONNECT_INTERVAL = 10 -- 10 секунд для тестирования (было 300 = 5 минут)
 
 -- Проверяем доступность getgenv
 if not getgenv then
@@ -44,11 +44,10 @@ local function CreateDebugGUI()
     
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 400, 0, 250)
+    mainFrame.Size = UDim2.new(0, 350, 0, 200)
     mainFrame.Position = UDim2.new(0, 10, 0, 10)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    mainFrame.BorderSizePixel = 2
-    mainFrame.BorderColor3 = Color3.fromRGB(100, 200, 255)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    mainFrame.BorderSizePixel = 0
     mainFrame.Parent = screenGui
     
     local corner = Instance.new("UICorner")
@@ -73,40 +72,17 @@ local function CreateDebugGUI()
     
     local statusLabel = Instance.new("TextLabel")
     statusLabel.Name = "Status"
-    statusLabel.Size = UDim2.new(1, -20, 0, 150)
+    statusLabel.Size = UDim2.new(1, -20, 0, 100)
     statusLabel.Position = UDim2.new(0, 10, 0, 40)
     statusLabel.BackgroundTransparency = 1
     statusLabel.Text = "Статус: Загрузка..."
     statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    statusLabel.TextSize = 14
-    statusLabel.Font = Enum.Font.GothamBold
+    statusLabel.TextSize = 12
+    statusLabel.Font = Enum.Font.Gotham
     statusLabel.TextXAlignment = Enum.TextXAlignment.Left
     statusLabel.TextYAlignment = Enum.TextYAlignment.Top
     statusLabel.TextWrapped = true
     statusLabel.Parent = mainFrame
-    
-    -- Индикатор работы (мигающий)
-    local indicator = Instance.new("Frame")
-    indicator.Name = "Indicator"
-    indicator.Size = UDim2.new(0, 20, 0, 20)
-    indicator.Position = UDim2.new(1, -30, 0, 5)
-    indicator.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
-    indicator.BorderSizePixel = 0
-    indicator.Parent = mainFrame
-    
-    local indicatorCorner = Instance.new("UICorner")
-    indicatorCorner.CornerRadius = UDim.new(0, 10)
-    indicatorCorner.Parent = indicator
-    
-    -- Анимация индикатора
-    spawn(function()
-        while indicator.Parent do
-            indicator.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
-            wait(1)
-            indicator.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
-            wait(1)
-        end
-    end)
     
     local closeBtn = Instance.new("TextButton")
     closeBtn.Name = "CloseBtn"
@@ -132,19 +108,6 @@ local function CreateDebugGUI()
     local function UpdateStatus(text, color)
         statusLabel.Text = text
         statusLabel.TextColor3 = color or Color3.fromRGB(255, 255, 255)
-        
-        -- Обновляем цвет индикатора в зависимости от статуса
-        if color then
-            if color == Color3.fromRGB(100, 255, 100) then
-                indicator.BackgroundColor3 = Color3.fromRGB(100, 255, 100) -- Зеленый - успех
-            elseif color == Color3.fromRGB(255, 100, 100) then
-                indicator.BackgroundColor3 = Color3.fromRGB(255, 100, 100) -- Красный - ошибка
-            elseif color == Color3.fromRGB(255, 255, 100) then
-                indicator.BackgroundColor3 = Color3.fromRGB(255, 255, 100) -- Желтый - процесс
-            else
-                indicator.BackgroundColor3 = Color3.fromRGB(100, 200, 255) -- Синий - информация
-            end
-        end
     end
     
     getgenv().UpdateDebugStatus = UpdateStatus
@@ -334,9 +297,13 @@ if not httpGetTest then
     print("⚠️ game:HttpGet может быть недоступен, пробую альтернативные методы...")
 end
 
--- Загружаем основной скрипт сразу
-print("🚀 Начинаю загрузку основного скрипта...")
-LoadMainScript()
+-- Загружаем основной скрипт с небольшой задержкой, чтобы избежать лагов
+print("⏳ Жду 2 секунды перед загрузкой основного скрипта (чтобы избежать лагов)...")
+spawn(function()
+    wait(2)
+    print("🚀 Начинаю загрузку основного скрипта...")
+    LoadMainScript()
+end)
 
 -- Экспортируем функцию переподключения
 getgenv().ReconnectToServer = ReconnectToServer
@@ -366,30 +333,36 @@ end
 
 -- Ожидаем загрузки игрока после телепорта
 if localPlayer then
-    -- Загружаем скрипт сразу если персонаж уже есть
+    -- Загружаем скрипт сразу если персонаж уже есть (с задержкой)
     if localPlayer.Character then
         spawn(function()
-            wait(2)
+            wait(3) -- Увеличиваем задержку для стабильности
+            getgenv().MainScriptLoaded = false -- Сбрасываем флаг
             LoadMainScript()
         end)
     end
     
     -- Загружаем скрипт после каждого телепорта и перезапускаем цикл
     localPlayer.CharacterAdded:Connect(function()
-        print("👤 Персонаж загружен, жду 3 секунды...")
-        wait(3) -- Ждем полной загрузки персонажа
+        print("👤 Персонаж загружен, жду 4 секунды для стабильности...")
+        wait(4) -- Увеличиваем задержку для полной загрузки персонажа и избежания лагов
         
         -- Сбрасываем флаг загрузки скрипта для нового сервера
         getgenv().MainScriptLoaded = false
         
         print("📥 Загружаю основной скрипт после телепорта...")
-        LoadMainScript()
+        spawn(function()
+            wait(1) -- Дополнительная задержка перед загрузкой
+            LoadMainScript()
+        end)
         
         -- Сбрасываем флаг и перезапускаем цикл переподключения после телепорта
-        getgenv().ReconnectLoopRunning = false
-        wait(2)
-        print("🔄 Перезапускаю цикл переподключения...")
-        StartReconnectLoop()
+        spawn(function()
+            wait(3) -- Ждем загрузки скрипта
+            getgenv().ReconnectLoopRunning = false
+            print("🔄 Перезапускаю цикл переподключения...")
+            StartReconnectLoop()
+        end)
         
         -- Автоматически перезагружаем скрипт переподключения с GitHub для продолжения работы
         spawn(function()
