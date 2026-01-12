@@ -44,10 +44,11 @@ local function CreateDebugGUI()
     
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 350, 0, 200)
+    mainFrame.Size = UDim2.new(0, 400, 0, 250)
     mainFrame.Position = UDim2.new(0, 10, 0, 10)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    mainFrame.BorderSizePixel = 0
+    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    mainFrame.BorderSizePixel = 2
+    mainFrame.BorderColor3 = Color3.fromRGB(100, 200, 255)
     mainFrame.Parent = screenGui
     
     local corner = Instance.new("UICorner")
@@ -72,17 +73,40 @@ local function CreateDebugGUI()
     
     local statusLabel = Instance.new("TextLabel")
     statusLabel.Name = "Status"
-    statusLabel.Size = UDim2.new(1, -20, 0, 100)
+    statusLabel.Size = UDim2.new(1, -20, 0, 150)
     statusLabel.Position = UDim2.new(0, 10, 0, 40)
     statusLabel.BackgroundTransparency = 1
     statusLabel.Text = "Статус: Загрузка..."
     statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    statusLabel.TextSize = 12
-    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.TextSize = 14
+    statusLabel.Font = Enum.Font.GothamBold
     statusLabel.TextXAlignment = Enum.TextXAlignment.Left
     statusLabel.TextYAlignment = Enum.TextYAlignment.Top
     statusLabel.TextWrapped = true
     statusLabel.Parent = mainFrame
+    
+    -- Индикатор работы (мигающий)
+    local indicator = Instance.new("Frame")
+    indicator.Name = "Indicator"
+    indicator.Size = UDim2.new(0, 20, 0, 20)
+    indicator.Position = UDim2.new(1, -30, 0, 5)
+    indicator.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
+    indicator.BorderSizePixel = 0
+    indicator.Parent = mainFrame
+    
+    local indicatorCorner = Instance.new("UICorner")
+    indicatorCorner.CornerRadius = UDim.new(0, 10)
+    indicatorCorner.Parent = indicator
+    
+    -- Анимация индикатора
+    spawn(function()
+        while indicator.Parent do
+            indicator.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
+            wait(1)
+            indicator.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+            wait(1)
+        end
+    end)
     
     local closeBtn = Instance.new("TextButton")
     closeBtn.Name = "CloseBtn"
@@ -108,6 +132,19 @@ local function CreateDebugGUI()
     local function UpdateStatus(text, color)
         statusLabel.Text = text
         statusLabel.TextColor3 = color or Color3.fromRGB(255, 255, 255)
+        
+        -- Обновляем цвет индикатора в зависимости от статуса
+        if color then
+            if color == Color3.fromRGB(100, 255, 100) then
+                indicator.BackgroundColor3 = Color3.fromRGB(100, 255, 100) -- Зеленый - успех
+            elseif color == Color3.fromRGB(255, 100, 100) then
+                indicator.BackgroundColor3 = Color3.fromRGB(255, 100, 100) -- Красный - ошибка
+            elseif color == Color3.fromRGB(255, 255, 100) then
+                indicator.BackgroundColor3 = Color3.fromRGB(255, 255, 100) -- Желтый - процесс
+            else
+                indicator.BackgroundColor3 = Color3.fromRGB(100, 200, 255) -- Синий - информация
+            end
+        end
     end
     
     getgenv().UpdateDebugStatus = UpdateStatus
@@ -131,7 +168,7 @@ if not teleportSuccess then
     print("⚠️ Предупреждение при сохранении данных телепорта: " .. tostring(teleportErr))
 end
 
--- Функция переподключения к серверам
+-- Функция переподключения к серверам (упрощенная версия для мобильных)
 local function ReconnectToServer()
     local localPlayer = Players.LocalPlayer
     
@@ -141,53 +178,33 @@ local function ReconnectToServer()
         if getgenv().UpdateDebugStatus then
             getgenv().UpdateDebugStatus(errorMsg, Color3.fromRGB(255, 100, 100))
         end
-        return
+        return false
     end
     
     local placeId = game.PlaceId
-    local jobId = game.JobId
     
-    local statusMsg = "🔍 Ищу новый сервер для переподключения..."
+    local statusMsg = "🔄 Переподключаюсь на новый сервер..."
     print(statusMsg)
     if getgenv().UpdateDebugStatus then
-        getgenv().UpdateDebugStatus(statusMsg, Color3.fromRGB(255, 255, 100))
+        getgenv().UpdateDebugStatus(statusMsg, Color3.fromRGB(100, 200, 255))
     end
     
-    -- Получаем список серверов
-    local success, servers = pcall(function()
-        return TeleportService:GetGameInstancesAsync(placeId)
+    -- Упрощенный метод для мобильных - просто создаем новый сервер
+    -- Это более надежно работает на всех платформах
+    local success, err = pcall(function()
+        TeleportService:Teleport(placeId, localPlayer)
     end)
     
-    if success and servers and #servers > 0 then
-        -- Ищем сервер с игроками (но не текущий)
-        for _, server in ipairs(servers) do
-            if server.JobId ~= jobId and server.Playing > 0 then
-                local reconnectMsg = "🔄 Переподключаюсь на сервер: " .. server.JobId
-                print(reconnectMsg)
-                if getgenv().UpdateDebugStatus then
-                    getgenv().UpdateDebugStatus(reconnectMsg, Color3.fromRGB(100, 200, 255))
-                end
-                TeleportService:TeleportToPlaceInstance(placeId, server.JobId, localPlayer)
-                return
-            end
-        end
-        
-        -- Если не нашли подходящий сервер, переподключаемся на новый
-        local newServerMsg = "🆕 Создаю новый сервер..."
-        print(newServerMsg)
-        if getgenv().UpdateDebugStatus then
-            getgenv().UpdateDebugStatus(newServerMsg, Color3.fromRGB(100, 200, 255))
-        end
-        TeleportService:Teleport(placeId)
-    else
-        -- Если нет серверов или ошибка, просто переподключаемся
-        local errorMsg = "⚠️ Ошибка получения серверов, создаю новый..."
+    if not success then
+        local errorMsg = "❌ Ошибка телепорта: " .. tostring(err)
         print(errorMsg)
         if getgenv().UpdateDebugStatus then
-            getgenv().UpdateDebugStatus(errorMsg, Color3.fromRGB(255, 200, 100))
+            getgenv().UpdateDebugStatus(errorMsg, Color3.fromRGB(255, 100, 100))
         end
-        TeleportService:Teleport(placeId)
+        return false
     end
+    
+    return true
 end
 
 -- Загружаем и выполняем ваш скрипт с GitHub
@@ -197,12 +214,77 @@ local function LoadMainScript()
     end
     print("📥 Загружаю основной скрипт с GitHub...")
     
+    -- Проверяем, не загружен ли уже скрипт (чтобы избежать повторной загрузки)
+    if getgenv().MainScriptLoaded then
+        print("ℹ️ Основной скрипт уже загружен, пропускаю...")
+        return true
+    end
+    
     local success, err = pcall(function()
-        local scriptContent = game:HttpGet("https://raw.githubusercontent.com/Azura83/Murder-Mystery-2/refs/heads/main/Script.lua", true)
-        if not scriptContent or scriptContent == "" then
-            error("Скрипт пустой или не найден")
+        -- Пробуем загрузить скрипт (пробуем разные методы)
+        print("📡 Отправляю запрос к GitHub...")
+        local scriptContent
+        
+        -- Метод 1: game:HttpGet
+        local httpSuccess, httpErr = pcall(function()
+            scriptContent = game:HttpGet("https://raw.githubusercontent.com/Azura83/Murder-Mystery-2/refs/heads/main/Script.lua", true)
+        end)
+        
+        -- Метод 2: game.HttpGet (альтернативный синтаксис)
+        if not httpSuccess or not scriptContent then
+            print("⚠️ Метод 1 не сработал, пробую альтернативный...")
+            httpSuccess, httpErr = pcall(function()
+                scriptContent = game.HttpGet(game, "https://raw.githubusercontent.com/Azura83/Murder-Mystery-2/refs/heads/main/Script.lua", true)
+            end)
         end
-        loadstring(scriptContent)()
+        
+        -- Метод 3: HttpService
+        if not httpSuccess or not scriptContent then
+            print("⚠️ Метод 2 не сработал, пробую HttpService...")
+            local HttpService = game:GetService("HttpService")
+            httpSuccess, httpErr = pcall(function()
+                scriptContent = HttpService:GetAsync("https://raw.githubusercontent.com/Azura83/Murder-Mystery-2/refs/heads/main/Script.lua", true)
+            end)
+        end
+        
+        if not httpSuccess then
+            error("Не удалось загрузить скрипт. Ошибка: " .. tostring(httpErr))
+        end
+        
+        if not scriptContent then
+            error("Не удалось получить скрипт (scriptContent = nil)")
+        elseif scriptContent == "" then
+            error("Скрипт пустой")
+        elseif #scriptContent < 100 then
+            error("Скрипт слишком короткий, возможно ошибка загрузки. Длина: " .. #scriptContent)
+        end
+        
+        print("✅ Скрипт получен, длина: " .. #scriptContent .. " символов")
+        print("🔄 Выполняю скрипт...")
+        
+        -- Выполняем скрипт (пробуем разные методы)
+        local func, loadErr
+        if loadstring then
+            func, loadErr = loadstring(scriptContent)
+        elseif load then
+            func, loadErr = load(scriptContent)
+        else
+            error("loadstring и load недоступны!")
+        end
+        
+        if not func then
+            error("Ошибка компиляции: " .. tostring(loadErr))
+        end
+        
+        -- Выполняем функцию
+        local execSuccess, execErr = pcall(func)
+        if not execSuccess then
+            error("Ошибка выполнения: " .. tostring(execErr))
+        end
+        
+        -- Помечаем как загруженный
+        getgenv().MainScriptLoaded = true
+        print("✅ Скрипт выполнен успешно!")
     end)
     
     if not success then
@@ -212,12 +294,14 @@ local function LoadMainScript()
         if getgenv().UpdateDebugStatus then
             getgenv().UpdateDebugStatus(errorMsg, Color3.fromRGB(255, 100, 100))
         end
+        return false
     else
-        local successMsg = "✅ Основной скрипт успешно загружен!"
+        local successMsg = "✅ Основной скрипт успешно загружен и выполнен!"
         print(successMsg)
         if getgenv().UpdateDebugStatus then
             getgenv().UpdateDebugStatus(successMsg, Color3.fromRGB(100, 255, 100))
         end
+        return true
     end
 end
 
@@ -234,11 +318,24 @@ if not localPlayer then
 end
 
 print("✅ Игрок найден: " .. tostring(localPlayer.Name))
+print("📍 PlaceId: " .. tostring(game.PlaceId))
+print("🆔 JobId: " .. tostring(game.JobId))
+
 if getgenv().UpdateDebugStatus then
     getgenv().UpdateDebugStatus("✅ Игрок: " .. tostring(localPlayer.Name) .. "\n📥 Загружаю основной скрипт...", Color3.fromRGB(100, 255, 100))
 end
 
+-- Проверяем доступность HttpGet
+print("🔍 Проверяю доступность game:HttpGet...")
+local httpGetTest = pcall(function()
+    return game.HttpGet
+end)
+if not httpGetTest then
+    print("⚠️ game:HttpGet может быть недоступен, пробую альтернативные методы...")
+end
+
 -- Загружаем основной скрипт сразу
+print("🚀 Начинаю загрузку основного скрипта...")
 LoadMainScript()
 
 -- Экспортируем функцию переподключения
@@ -279,29 +376,39 @@ if localPlayer then
     
     -- Загружаем скрипт после каждого телепорта и перезапускаем цикл
     localPlayer.CharacterAdded:Connect(function()
+        print("👤 Персонаж загружен, жду 3 секунды...")
         wait(3) -- Ждем полной загрузки персонажа
+        
+        -- Сбрасываем флаг загрузки скрипта для нового сервера
+        getgenv().MainScriptLoaded = false
+        
+        print("📥 Загружаю основной скрипт после телепорта...")
         LoadMainScript()
         
         -- Сбрасываем флаг и перезапускаем цикл переподключения после телепорта
         getgenv().ReconnectLoopRunning = false
         wait(2)
+        print("🔄 Перезапускаю цикл переподключения...")
         StartReconnectLoop()
         
-        -- Автоматически перезагружаем скрипт с GitHub для продолжения работы после телепорта
+        -- Автоматически перезагружаем скрипт переподключения с GitHub для продолжения работы
         spawn(function()
             wait(5)
+            print("🔄 Проверяю необходимость перезагрузки скрипта переподключения...")
             -- Проверяем, не загружали ли уже скрипт (чтобы избежать рекурсии)
             if not getgenv().ServerHopperReloading then
                 getgenv().ServerHopperReloading = true
                 local success, script = pcall(function()
-                    return game:HttpGet("https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua")
+                    return game:HttpGet("https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua", true)
                 end)
-                if success and script then
+                if success and script and #script > 100 then
+                    print("✅ Перезагружаю скрипт переподключения с GitHub...")
                     -- Сбрасываем флаг перед загрузкой, чтобы новый экземпляр мог работать
                     getgenv().ServerHopperActive = false
                     getgenv().ServerHopperReloading = false
                     loadstring(script)()
                 else
+                    print("⚠️ Не удалось перезагрузить скрипт переподключения, продолжаю работу...")
                     getgenv().ServerHopperReloading = false
                 end
             end
