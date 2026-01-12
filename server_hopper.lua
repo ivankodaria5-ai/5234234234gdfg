@@ -3,6 +3,7 @@
 local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
 
 -- Функция для сохранения скрипта на выполнение после телепорта
 local queueFunc = queueonteleport or queue_on_teleport or (syn and syn.queue_on_teleport) or (getgenv and getgenv().queue_on_teleport) or function(code)
@@ -11,47 +12,102 @@ end
 
 -- URL скрипта для автоматической загрузки
 local SCRIPT_URL = "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua"
+local AUTO_LOAD_FILE = "server_hopper_autoload.txt"
 
--- Сохраняем скрипт в workspace для автоматической загрузки после телепорта (сохраняется между сессиями)
+-- Проверяем доступность writefile/readfile
+local hasFileAccess = false
+if writefile and readfile then
+    hasFileAccess = true
+    print("✅ Доступ к файлам обнаружен (writefile/readfile)")
+else
+    print("⚠️ writefile/readfile недоступны, используем альтернативные методы")
+end
+
+-- Сохраняем скрипт для автоматической загрузки (несколько методов)
 local function saveScriptForAutoLoad()
-    -- Сохраняем в workspace (сохраняется между телепортами)
+    -- МЕТОД 1: Сохранение через файл (самый надежный для мобильных)
+    if hasFileAccess then
+        pcall(function()
+            writefile(AUTO_LOAD_FILE, SCRIPT_URL)
+            print("💾 Скрипт сохранен в файл: " .. AUTO_LOAD_FILE)
+        end)
+    end
+    
+    -- МЕТОД 2: Сохраняем в workspace (сохраняется между телепортами)
     pcall(function()
         local storage = workspace:FindFirstChild("ServerHopperAutoLoad") or Instance.new("StringValue")
         storage.Name = "ServerHopperAutoLoad"
         storage.Value = SCRIPT_URL
         storage.Parent = workspace
-        print("💾 Скрипт сохранен в workspace для автоматической загрузки")
+        print("💾 Скрипт сохранен в workspace")
     end)
     
-    -- Также сохраняем в getgenv() (на случай если workspace не работает)
+    -- МЕТОД 3: Сохраняем в ReplicatedStorage (если доступно)
+    pcall(function()
+        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        local storage = ReplicatedStorage:FindFirstChild("ServerHopperAutoLoad") or Instance.new("StringValue")
+        storage.Name = "ServerHopperAutoLoad"
+        storage.Value = SCRIPT_URL
+        storage.Parent = ReplicatedStorage
+        print("💾 Скрипт сохранен в ReplicatedStorage")
+    end)
+    
+    -- МЕТОД 4: Сохраняем в getgenv() (на случай если другие методы не работают)
     if not getgenv().AutoLoadScript then
         getgenv().AutoLoadScript = SCRIPT_URL
-        print("💾 Скрипт сохранен в getgenv() для автоматической загрузки")
+        print("💾 Скрипт сохранен в getgenv()")
     end
     
     -- Сохраняем текущий JobId для проверки
-    getgenv().LastJobId = game.JobId
-    print("💾 JobId сохранен: " .. tostring(game.JobId))
+    local currentJobId = game.JobId
+    getgenv().LastJobId = currentJobId
+    
+    -- Сохраняем JobId в файл
+    if hasFileAccess then
+        pcall(function()
+            writefile("server_hopper_jobid.txt", tostring(currentJobId))
+        end)
+    end
+    
+    print("💾 JobId сохранен: " .. tostring(currentJobId))
+end
+
+-- Загружаем сохраненный JobId
+local function loadLastJobId()
+    local lastJobId = nil
+    
+    -- Пробуем загрузить из файла
+    if hasFileAccess then
+        pcall(function()
+            if readfile then
+                local content = readfile("server_hopper_jobid.txt")
+                if content then
+                    lastJobId = content
+                    print("📖 JobId загружен из файла: " .. tostring(lastJobId))
+                end
+            end
+        end)
+    end
+    
+    -- Если не получилось из файла, пробуем из getgenv()
+    if not lastJobId and getgenv().LastJobId then
+        lastJobId = getgenv().LastJobId
+        print("📖 JobId загружен из getgenv(): " .. tostring(lastJobId))
+    end
+    
+    return lastJobId
 end
 
 -- Функция автоматической загрузки скрипта (для мобильных - через 10 секунд после загрузки)
 local function autoLoadScriptAfterTeleport()
     local currentJobId = game.JobId
-    local lastJobId = getgenv().LastJobId
+    local lastJobId = loadLastJobId()
     
     -- Проверяем, был ли телепорт
     local wasTeleported = false
     if lastJobId and lastJobId ~= currentJobId then
         wasTeleported = true
         print("🔄 Обнаружена смена сервера! JobId: " .. tostring(lastJobId) .. " -> " .. tostring(currentJobId))
-    end
-    
-    -- Также проверяем через workspace
-    local workspaceStorage = workspace:FindFirstChild("ServerHopperAutoLoad")
-    if workspaceStorage and workspaceStorage.Value == SCRIPT_URL then
-        if lastJobId and lastJobId ~= currentJobId then
-            wasTeleported = true
-        end
     end
     
     if wasTeleported then
@@ -73,6 +129,9 @@ local function autoLoadScriptAfterTeleport()
                 getgenv().ReconnectLoopRunning = false
                 getgenv().MainScriptLoaded = false
                 getgenv().LastJobId = currentJobId
+                
+                -- Сохраняем новый JobId
+                saveScriptForAutoLoad()
                 
                 -- Загружаем скрипт
                 local func, loadErr = loadstring(script)
@@ -110,6 +169,52 @@ if wasTeleported then
         return -- Скрипт загрузился, прерываем выполнение
     end
 end
+
+-- Постоянная проверка для автоматической загрузки (для мобильных)
+-- Проверяем каждые 5 секунд, не изменился ли JobId
+spawn(function()
+    while true do
+        wait(5)
+        
+        local currentJobId = game.JobId
+        local lastJobId = loadLastJobId()
+        
+        -- Если JobId изменился и скрипт еще не активен, загружаем его
+        if lastJobId and lastJobId ~= currentJobId and not getgenv().ServerHopperActive then
+            print("🔄 Обнаружена смена сервера через постоянную проверку!")
+            print("📱 Жду 10 секунд для загрузки jjsploit...")
+            
+            wait(10)
+            
+            print("📥 Загружаю скрипт переподключения с GitHub...")
+            local success, script = pcall(function()
+                return game:HttpGet(SCRIPT_URL, true)
+            end)
+            
+            if success and script and #script > 100 then
+                print("✅ Скрипт получен, перезагружаю...")
+                
+                -- Сбрасываем флаги
+                getgenv().ServerHopperActive = false
+                getgenv().ReconnectLoopRunning = false
+                getgenv().MainScriptLoaded = false
+                getgenv().LastJobId = currentJobId
+                
+                -- Сохраняем новый JobId
+                saveScriptForAutoLoad()
+                
+                -- Загружаем скрипт
+                local func, loadErr = loadstring(script)
+                if func then
+                    func()
+                    break
+                else
+                    print("❌ Ошибка компиляции: " .. tostring(loadErr))
+                end
+            end
+        end
+    end
+end)
 
 -- Интервал переподключения в секундах (можно изменить)
 local RECONNECT_INTERVAL = 10 -- 10 секунд для тестирования (было 300 = 5 минут)
@@ -386,12 +491,21 @@ local function ReconnectToServer()
         print("⚠️ queueonteleport не поддерживается, используем альтернативный метод")
     end
     
-    -- МЕТОД 2: Сохраняем в getgenv() и workspace для автоматической проверки при следующем запуске
+    -- МЕТОД 2: Сохраняем скрипт для автоматической загрузки при следующем запуске
     saveScriptForAutoLoad()
     
     -- Обновляем JobId перед телепортом
-    getgenv().LastJobId = game.JobId
-    print("💾 Сохраняю текущий JobId: " .. tostring(game.JobId))
+    local currentJobId = game.JobId
+    getgenv().LastJobId = currentJobId
+    
+    -- Сохраняем JobId в файл
+    if hasFileAccess then
+        pcall(function()
+            writefile("server_hopper_jobid.txt", tostring(currentJobId))
+        end)
+    end
+    
+    print("💾 Сохраняю текущий JobId: " .. tostring(currentJobId))
     
     -- МЕТОД 3: Сохраняем через workspace (резервный метод)
     spawn(function()
@@ -646,6 +760,9 @@ if localPlayer then
                     getgenv().MainScriptLoaded = false
                     getgenv().LastJobId = currentJobId
                     
+                    -- Сохраняем новый JobId
+                    saveScriptForAutoLoad()
+                    
                     -- Загружаем и выполняем скрипт
                     local func, loadErr = loadstring(script)
                     if func then
@@ -683,11 +800,17 @@ StartReconnectLoop()
 
 local successMsg = "✅ Скрипт переподключения активирован!\n⏱ Интервал: " .. RECONNECT_INTERVAL .. " сек (" .. math.floor(RECONNECT_INTERVAL / 60) .. " мин)\n🔄 Автоперезагрузка включена"
 print(successMsg)
-print("📱 ВАЖНО для jjsploit на мобильных:")
-print("📱 После телепорта игра перезапускается")
-print("📱 Через 10 секунд после загрузки персонажа скрипт автоматически загрузится с GitHub")
-print("📱 Если скрипт не загрузился автоматически, запустите его вручную - он определит смену сервера")
+print("📱 АВТОМАТИЧЕСКАЯ ЗАГРУЗКА ДЛЯ МОБИЛЬНЫХ:")
+print("📱 Скрипт сохранен в файл и workspace")
+print("📱 После телепорта скрипт автоматически загрузится через:")
+print("   - CharacterAdded (через 10 сек после загрузки персонажа)")
+print("   - Постоянная проверка (каждые 5 секунд)")
 print("📱 Текущий JobId: " .. tostring(game.JobId))
+if hasFileAccess then
+    print("✅ Файловый доступ доступен - скрипт будет автоматически загружаться!")
+else
+    print("⚠️ Файловый доступ недоступен - используем альтернативные методы")
+end
 if getgenv().UpdateDebugStatus then
-    getgenv().UpdateDebugStatus(successMsg .. "\n\n📱 Для jjsploit: Скрипт загрузится через 10 сек после телепорта", Color3.fromRGB(100, 255, 100))
+    getgenv().UpdateDebugStatus(successMsg .. "\n\n📱 Автозагрузка: CharacterAdded + постоянная проверка", Color3.fromRGB(100, 255, 100))
 end
