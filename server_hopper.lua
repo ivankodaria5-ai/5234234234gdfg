@@ -15,14 +15,38 @@ if not getgenv then
     error(errorMsg)
 end
 
--- Флаг для предотвращения множественных запусков
-if getgenv().ServerHopperActive then
-    print("⚠️ Скрипт уже запущен!")
-    return
+-- Проверяем, был ли телепорт (через сохраненные данные и JobId)
+local teleportData = TeleportService:GetLocalPlayerTeleportData()
+local currentJobId = game.JobId
+local wasTeleported = false
+
+-- Проверяем через сохраненные данные
+if teleportData and teleportData.ServerHopper == true then
+    wasTeleported = true
 end
-getgenv().ServerHopperActive = true
+
+-- Проверяем через сохраненный JobId (если JobId изменился, значит был телепорт)
+if getgenv().LastJobId and getgenv().LastJobId ~= currentJobId then
+    wasTeleported = true
+    print("🔄 JobId изменился: " .. tostring(getgenv().LastJobId) .. " -> " .. tostring(currentJobId))
+end
+
+-- Сохраняем текущий JobId
+getgenv().LastJobId = currentJobId
+
+-- Флаг для предотвращения множественных запусков (только если не был телепорт)
+if not wasTeleported then
+    if getgenv().ServerHopperActive then
+        print("⚠️ Скрипт уже запущен!")
+        return
+    end
+    getgenv().ServerHopperActive = true
+end
 
 print("✅ Скрипт инициализирован успешно!")
+if wasTeleported then
+    print("🔄 Обнаружен телепорт, перезагружаю скрипт с GitHub...")
+end
 
 -- Создаем GUI для отображения статуса и ошибок
 local function CreateDebugGUI()
@@ -129,6 +153,52 @@ local teleportSuccess, teleportErr = pcall(function()
 end)
 if not teleportSuccess then
     print("⚠️ Предупреждение при сохранении данных телепорта: " .. tostring(teleportErr))
+end
+
+-- Если был телепорт, загружаем скрипт с GitHub и перезапускаем
+if wasTeleported then
+    print("📥 Обнаружен телепорт! Загружаю скрипт переподключения с GitHub...")
+    spawn(function()
+        wait(2) -- Небольшая задержка для стабильности
+        
+        local success, script = pcall(function()
+            return game:HttpGet("https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua", true)
+        end)
+        
+        if success and script and #script > 100 then
+            print("✅ Скрипт получен с GitHub, длина: " .. #script .. " символов")
+            print("🔄 Перезагружаю скрипт...")
+            
+            -- Сбрасываем флаги перед загрузкой
+            getgenv().ServerHopperActive = false
+            getgenv().ReconnectLoopRunning = false
+            getgenv().MainScriptLoaded = false
+            getgenv().ServerHopperReloading = false
+            
+            -- Загружаем и выполняем скрипт
+            local func, loadErr = loadstring(script)
+            if func then
+                func()
+            else
+                print("❌ Ошибка компиляции при перезагрузке: " .. tostring(loadErr))
+                -- Если не удалось загрузить, продолжаем работу текущего экземпляра
+                getgenv().ServerHopperActive = true
+            end
+        else
+            print("⚠️ Не удалось загрузить скрипт с GitHub, продолжаю работу текущего экземпляра...")
+            if not success then
+                print("❌ Ошибка: " .. tostring(script))
+            end
+            -- Продолжаем работу текущего экземпляра
+            getgenv().ServerHopperActive = true
+        end
+    end)
+    
+    -- Ждем немного перед продолжением (на случай, если загрузка не удалась)
+    wait(3)
+    if not getgenv().ServerHopperActive then
+        return -- Новый скрипт загрузился, прерываем выполнение
+    end
 end
 
 -- Функция переподключения к серверам (упрощенная версия для мобильных)
@@ -344,46 +414,50 @@ if localPlayer then
     
     -- Загружаем скрипт после каждого телепорта и перезапускаем цикл
     localPlayer.CharacterAdded:Connect(function()
-        print("👤 Персонаж загружен, жду 4 секунды для стабильности...")
-        wait(4) -- Увеличиваем задержку для полной загрузки персонажа и избежания лагов
+        print("👤 Персонаж загружен после телепорта!")
         
-        -- Сбрасываем флаг загрузки скрипта для нового сервера
+        -- Сбрасываем флаги для нового сервера
         getgenv().MainScriptLoaded = false
+        getgenv().ReconnectLoopRunning = false
         
-        print("📥 Загружаю основной скрипт после телепорта...")
+        -- Загружаем скрипт переподключения с GitHub (чтобы он работал на новом сервере)
         spawn(function()
-            wait(1) -- Дополнительная задержка перед загрузкой
-            LoadMainScript()
-        end)
-        
-        -- Сбрасываем флаг и перезапускаем цикл переподключения после телепорта
-        spawn(function()
-            wait(3) -- Ждем загрузки скрипта
-            getgenv().ReconnectLoopRunning = false
-            print("🔄 Перезапускаю цикл переподключения...")
-            StartReconnectLoop()
-        end)
-        
-        -- Автоматически перезагружаем скрипт переподключения с GitHub для продолжения работы
-        spawn(function()
-            wait(5)
-            print("🔄 Проверяю необходимость перезагрузки скрипта переподключения...")
-            -- Проверяем, не загружали ли уже скрипт (чтобы избежать рекурсии)
-            if not getgenv().ServerHopperReloading then
-                getgenv().ServerHopperReloading = true
-                local success, script = pcall(function()
-                    return game:HttpGet("https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua", true)
-                end)
-                if success and script and #script > 100 then
-                    print("✅ Перезагружаю скрипт переподключения с GitHub...")
-                    -- Сбрасываем флаг перед загрузкой, чтобы новый экземпляр мог работать
-                    getgenv().ServerHopperActive = false
-                    getgenv().ServerHopperReloading = false
-                    loadstring(script)()
+            wait(2) -- Задержка для стабильности
+            print("📥 Загружаю скрипт переподключения с GitHub для нового сервера...")
+            
+            local success, script = pcall(function()
+                return game:HttpGet("https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua", true)
+            end)
+            
+            if success and script and #script > 100 then
+                print("✅ Скрипт переподключения получен, перезагружаю...")
+                
+                -- Сбрасываем флаги
+                getgenv().ServerHopperActive = false
+                getgenv().ReconnectLoopRunning = false
+                getgenv().MainScriptLoaded = false
+                
+                -- Загружаем и выполняем скрипт
+                local func, loadErr = loadstring(script)
+                if func then
+                    func()
                 else
-                    print("⚠️ Не удалось перезагрузить скрипт переподключения, продолжаю работу...")
-                    getgenv().ServerHopperReloading = false
+                    print("❌ Ошибка компиляции: " .. tostring(loadErr))
+                    -- Продолжаем работу текущего экземпляра
+                    getgenv().ServerHopperActive = true
+                    wait(2)
+                    LoadMainScript()
+                    wait(2)
+                    StartReconnectLoop()
                 end
+            else
+                print("⚠️ Не удалось загрузить скрипт с GitHub, продолжаю работу...")
+                -- Продолжаем работу текущего экземпляра
+                getgenv().ServerHopperActive = true
+                wait(2)
+                LoadMainScript()
+                wait(2)
+                StartReconnectLoop()
             end
         end)
     end)
