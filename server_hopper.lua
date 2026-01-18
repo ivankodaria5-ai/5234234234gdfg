@@ -223,12 +223,13 @@ if wasTeleported then
     end
 end
 
--- Постоянная проверка для автоматической загрузки (для мобильных)
--- Проверяем каждые 2 секунды, не изменился ли JobId
--- Это нужно для случая, когда CharacterAdded не сработал
+-- ОТКЛЮЧЕНО: Постоянная проверка JobId (вызывала ложные срабатывания)
+-- Теперь смена сервера происходит только по таймеру (1 час)
+-- Если нужна автоматическая проверка - раскомментируй код ниже
+--[[
 spawn(function()
     while true do
-        wait(2)
+        wait(60)  -- Проверяем реже - раз в минуту вместо 2 секунд
         
         local currentJobId = game.JobId
         local lastJobId = getgenv().LastJobId
@@ -291,6 +292,10 @@ spawn(function()
         end
     end
 end)
+--]]
+
+print("ℹ️ Постоянная проверка JobId отключена")
+print("🕐 Смена сервера будет происходить по таймеру: 1 час")
 
 -- Интервал переподключения в секундах (можно изменить)
 local RECONNECT_INTERVAL = 3600 -- 3600 секунд = 1 час
@@ -570,9 +575,12 @@ local function ReconnectToServer()
     -- МЕТОД 2: Сохраняем скрипт для автоматической загрузки при следующем запуске
     saveScriptForAutoLoad()
     
-    -- Обновляем JobId перед телепортом
+    -- Обновляем JobId перед телепортом и ставим флаг что телепорт инициировали мы
     local currentJobId = game.JobId
     getgenv().LastJobId = currentJobId
+    getgenv().OurTeleportInitiated = true  -- ВАЖНО: Флаг что телепорт сделали МЫ
+    
+    print("🚀 Инициирую телепорт, JobId: " .. tostring(currentJobId))
     
     -- Сохраняем JobId в workspace (сохраняется между телепортами)
     pcall(function()
@@ -780,22 +788,31 @@ getgenv().ReconnectToServer = ReconnectToServer
 -- Функция запуска цикла переподключения
 local function StartReconnectLoop()
     if getgenv().ReconnectLoopRunning then
+        print("ℹ️ Цикл переподключения уже запущен")
         return
     end
     getgenv().ReconnectLoopRunning = true
     
+    print("🔄 Запускаю цикл переподключения")
+    print("⏱️ Интервал: " .. RECONNECT_INTERVAL .. " сек (" .. math.floor(RECONNECT_INTERVAL / 60) .. " мин)")
+    
     spawn(function()
-        while true do
+        while getgenv().ReconnectLoopRunning do
             wait(RECONNECT_INTERVAL)
             
-            local reconnectMsg = "⏰ Время переподключения!\n⏱ Интервал: " .. RECONNECT_INTERVAL .. " сек (" .. math.floor(RECONNECT_INTERVAL / 60) .. " мин)"
+            local reconnectMsg = "⏰ Прошёл 1 час! Переподключаюсь к новому серверу..."
+            print("═══════════════════════════════════════")
             print(reconnectMsg)
+            print("═══════════════════════════════════════")
             if getgenv().UpdateDebugStatus then
                 getgenv().UpdateDebugStatus(reconnectMsg, Color3.fromRGB(255, 200, 100))
             end
             
             -- Переподключаемся к другому серверу
             ReconnectToServer()
+            
+            -- Небольшая пауза после телепорта
+            wait(5)
         end
     end)
 end
@@ -815,18 +832,21 @@ if localPlayer then
     localPlayer.CharacterAdded:Connect(function()
         print("👤 Персонаж загружен!")
         
-        -- Проверяем, был ли телепорт (через JobId)
+        -- Проверяем, был ли РЕАЛЬНЫЙ телепорт (через специальный флаг)
         local currentJobId = game.JobId
         local lastJobId = getgenv().LastJobId
         
-        -- Сбрасываем флаги для нового сервера
-        getgenv().MainScriptLoaded = false
-        getgenv().ReconnectLoopRunning = false
+        -- ВАЖНО: Проверяем был ли телепорт только если мы его сами инициировали
+        local wasOurTeleport = getgenv().OurTeleportInitiated or false
         
-        -- Если JobId изменился, значит был телепорт
-        if lastJobId and lastJobId ~= currentJobId then
+        -- Если JobId изменился И это был НАШ телепорт
+        if lastJobId and lastJobId ~= currentJobId and wasOurTeleport then
             print("🔄 Обнаружена смена сервера через CharacterAdded!")
             print("📱 Для мобильных: Жду 10 секунд для загрузки jjsploit...")
+            
+            -- Сбрасываем флаг телепорта
+            getgenv().OurTeleportInitiated = false
+            getgenv().LastJobId = currentJobId
             
             spawn(function()
                 wait(10) -- Ждем 10 секунд, чтобы jjsploit загрузился на мобильных
@@ -843,7 +863,6 @@ if localPlayer then
                     getgenv().ServerHopperActive = false
                     getgenv().ReconnectLoopRunning = false
                     getgenv().MainScriptLoaded = false
-                    getgenv().LastJobId = currentJobId
                     
                     -- Сохраняем новый JobId
                     saveScriptForAutoLoad()
@@ -868,14 +887,18 @@ if localPlayer then
                 StartReconnectLoop()
             end)
         else
-            -- Если телепорта не было, просто загружаем основной скрипт
-            print("ℹ️ Телепорта не было, загружаю только основной скрипт...")
-            spawn(function()
-                wait(2)
-                LoadMainScript()
-                wait(2)
-                StartReconnectLoop()
-            end)
+            -- Если телепорта не было, просто загружаем основной скрипт (ОДИН РАЗ)
+            if not getgenv().MainScriptLoaded then
+                print("ℹ️ Первая загрузка персонажа, загружаю скрипт...")
+                spawn(function()
+                    wait(2)
+                    LoadMainScript()
+                    wait(2)
+                    StartReconnectLoop()
+                end)
+            else
+                print("ℹ️ Скрипт уже загружен, пропускаю повторную загрузку")
+            end
         end
     end)
 end
