@@ -293,7 +293,7 @@ spawn(function()
 end)
 
 -- Интервал переподключения в секундах (можно изменить)
-local RECONNECT_INTERVAL = 10 -- 10 секунд для тестирования (было 300 = 5 минут)
+local RECONNECT_INTERVAL = 3600 -- 3600 секунд = 1 час
 
 -- Проверяем доступность getgenv
 if not getgenv then
