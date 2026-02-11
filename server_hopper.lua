@@ -3,12 +3,22 @@
 
 local PLACE_ID = 142823291 -- Murder Mystery 2
 local MM2_SCRIPT_URL = "https://raw.githubusercontent.com/Azura83/Murder-Mystery-2/refs/heads/main/Script.lua"
+local SCRIPT_URL = "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua"
 local HOP_INTERVAL = 60 -- 1 минута
+
+-- Проверяем, не запущен ли уже скрипт
+if _G.MM2AutoHopRunning then
+    warn("[MM2 AutoHop] Скрипт уже запущен!")
+    return
+end
+_G.MM2AutoHopRunning = true
 
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
+
+print("[MM2 AutoHop] v1.0 - Запуск скрипта...")
 
 -- Функция клика по кнопке выбора устройства
 local function clickDeviceButton()
@@ -122,17 +132,55 @@ local function findRandomServer()
     return servers[math.random(1, #servers)]
 end
 
+-- Переменная для отслеживания времени последнего хопа
+_G.MM2LastHopTime = tick()
+
 -- Функция переподключения на новый сервер
 local function serverHop()
     print("[MM2 AutoHop] Поиск нового сервера...")
     
-    -- Сохраняем скрипт для автозагрузки на новом сервере
-    queue_on_teleport([[
+    _G.MM2LastHopTime = tick()
+    
+    -- Пробуем несколько методов автозагрузки для совместимости с разными executor'ами
+    local autoloadScript = string.format([[
         repeat task.wait() until game:IsLoaded()
+        repeat task.wait() until game.Players.LocalPlayer
         task.wait(3)
         
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua"))()
-    ]])
+        print("[MM2 AutoHop] Автозагрузка на новом сервере...")
+        
+        local success, err = pcall(function()
+            loadstring(game:HttpGet("%s?t=" .. tick()))()
+        end)
+        
+        if not success then
+            warn("[MM2 AutoHop] Ошибка автозагрузки:", err)
+        end
+    ]], SCRIPT_URL)
+    
+    -- Метод 1: queue_on_teleport (работает в большинстве executor'ов)
+    local queueSuccess = pcall(function()
+        if queue_on_teleport then
+            queue_on_teleport(autoloadScript)
+            print("[MM2 AutoHop] queue_on_teleport установлен")
+        end
+    end)
+    
+    -- Метод 2: syn.queue_on_teleport (для Synapse X)
+    pcall(function()
+        if syn and syn.queue_on_teleport then
+            syn.queue_on_teleport(autoloadScript)
+            print("[MM2 AutoHop] syn.queue_on_teleport установлен")
+        end
+    end)
+    
+    -- Метод 3: Fluxus queue_on_teleport
+    pcall(function()
+        if fluxus and fluxus.queue_on_teleport then
+            fluxus.queue_on_teleport(autoloadScript)
+            print("[MM2 AutoHop] fluxus.queue_on_teleport установлен")
+        end
+    end)
     
     local serverId = findRandomServer()
     
@@ -149,7 +197,29 @@ end
 TeleportService.TeleportInitFailed:Connect(function(player, result, errorMessage)
     warn("[MM2 AutoHop] Ошибка телепортации:", errorMessage)
     task.wait(5)
-    serverHop()
+    
+    -- Пробуем снова
+    pcall(function()
+        serverHop()
+    end)
+end)
+
+-- Сохраняем состояние в файл (если executor поддерживает)
+pcall(function()
+    if writefile and readfile then
+        writefile("mm2_autohop_active.txt", "true")
+        print("[MM2 AutoHop] Состояние сохранено в файл")
+    end
+end)
+
+-- Защита от краша - автоматический перезапуск (watchdog)
+task.spawn(function()
+    while task.wait(10) do
+        if _G.MM2LastHopTime and tick() - _G.MM2LastHopTime > HOP_INTERVAL + 30 then
+            warn("[MM2 AutoHop] Watchdog: Скрипт завис более " .. (HOP_INTERVAL + 30) .. " секунд, попытка перезапуска...")
+            pcall(serverHop)
+        end
+    end
 end)
 
 -- Запуск таймера переподключения
@@ -158,8 +228,15 @@ print(string.format("[MM2 AutoHop] Автоматическое переподк
 task.spawn(function()
     while true do
         task.wait(HOP_INTERVAL)
-        serverHop()
+        
+        if _G.MM2AutoHopRunning then
+            print("[MM2 AutoHop] Время переподключения!")
+            pcall(serverHop)
+        else
+            print("[MM2 AutoHop] Скрипт остановлен")
+            break
+        end
     end
 end)
 
-print("[MM2 AutoHop] Скрипт активен!")
+print("[MM2 AutoHop] Скрипт активен! JobId: " .. game.JobId)
