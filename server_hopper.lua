@@ -1,29 +1,24 @@
--- Murder Mystery 2 Auto Server Hop v2.0
+-- MM2 Auto Server Hop
 local PLACE_ID = 142823291
 local MM2_SCRIPT_URL = "https://raw.githubusercontent.com/Azura83/Murder-Mystery-2/refs/heads/main/Script.lua"
 local SCRIPT_URL = "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua"
 local HOP_INTERVAL = 60
 
--- Проверка на повторный запуск
-if _G.MM2AutoHopRunning then
-    warn("[MM2] Скрипт уже запущен!")
-    return
-end
-_G.MM2AutoHopRunning = true
-
+-- Сервисы
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 
--- Определяем функцию queue (как в tools.lua)
-local queueFunc = queueonteleport or queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+-- КЛЮЧЕВОЕ: определяем queueFunc и scriptQueued (как в tools.lua)
+local queueFunc = queueonteleport
+local scriptQueued = false
 
-print("[MM2] Запуск v2.0 | JobId: " .. game.JobId)
+print("[MM2] Запуск скрипта | JobId: " .. game.JobId)
 
--- Загрузка MM2 скрипта
+-- Загружаем MM2 скрипт
 print("[MM2] Загрузка MM2 скрипта...")
-task.wait(3) -- Ждем загрузки игры
+task.wait(3)
 
 pcall(function()
     loadstring(game:HttpGet(MM2_SCRIPT_URL .. "?t=" .. tick()))()
@@ -64,34 +59,50 @@ local function findRandomServer()
     return nil
 end
 
--- Функция server hop (по образцу tools.lua)
+-- Функция serverHop (ТОЧНО как в tools.lua)
 local function serverHop()
     print("[MM2] Начинаю поиск нового сервера...")
     
-    -- Ставим скрипт в очередь для автозагрузки (как в tools.lua)
-    if queueFunc then
-        queueFunc('loadstring(game:HttpGet("' .. SCRIPT_URL .. '?t=' .. tick() .. '"))()')
-        print("[MM2] Скрипт поставлен в очередь автозагрузки")
-    else
-        warn("[MM2] queue_on_teleport недоступен!")
-    end
-    
-    -- Поиск случайного сервера
     local serverId = findRandomServer()
     
     if serverId then
-        print("[MM2] Найден сервер " .. serverId .. ", телепортация...")
-        TeleportService:TeleportToPlaceInstance(PLACE_ID, serverId, player)
+        print("[MM2] Найден сервер: " .. serverId)
+        
+        -- КЛЮЧЕВОЕ: ставим скрипт в очередь ОДИН РАЗ (как в tools.lua)
+        local teleportSuccess = pcall(function()
+            if not scriptQueued then
+                queueFunc('loadstring(game:HttpGet("' .. SCRIPT_URL .. '?t=' .. tick() .. '"))()')
+                scriptQueued = true
+                print("[MM2] Скрипт поставлен в очередь")
+            end
+            TeleportService:TeleportToPlaceInstance(PLACE_ID, serverId, player)
+        end)
+        
+        if teleportSuccess then
+            print("[MM2] Телепортация запущена")
+            return true
+        else
+            print("[MM2] Ошибка телепортации")
+        end
     else
-        print("[MM2] Случайная телепортация...")
-        TeleportService:Teleport(PLACE_ID, player)
+        print("[MM2] Серверы не найдены, случайная телепортация...")
+        
+        pcall(function()
+            if not scriptQueued then
+                queueFunc('loadstring(game:HttpGet("' .. SCRIPT_URL .. '?t=' .. tick() .. '"))()')
+                scriptQueued = true
+                print("[MM2] Скрипт поставлен в очередь")
+            end
+            TeleportService:Teleport(PLACE_ID, player)
+        end)
     end
+    
+    return false
 end
 
--- Таймер переподключения
-print("[MM2] Ожидание " .. HOP_INTERVAL .. " секунд до переподключения...")
+-- Ждем и переподключаемся
+print("[MM2] Ожидание " .. HOP_INTERVAL .. " секунд...")
 task.wait(HOP_INTERVAL)
 
--- Переподключение
-print("[MM2] Время вышло, переподключаюсь...")
+print("[MM2] Переподключение...")
 serverHop()
