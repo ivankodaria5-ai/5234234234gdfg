@@ -59,9 +59,8 @@ local freefallT   = 0
 local hopQueued   = false
 local hopStart    = tick()
 local hopTimerLbl = nil
--- Round state: "lobby" | "round" | "ending"
--- Watchdog and auto-reset only fire during "round", never in "lobby"/"ending"
-local roundState  = "lobby"
+local roundActive  = false   -- true only during active round
+local roundEndDone = false   -- flag: already reset this round end
 
 -- Utility
 local function getChar() return LP.Character end
@@ -238,49 +237,29 @@ local function safeReset(reason)
     resetting = false
 end
 
--- Watchdog: only runs during active round, detects flung/fell/stuck
+-- Watchdog: only runs during active round
 local function startWatchdog()
     task.spawn(function()
         while true do
             task.wait(0.25)
-
-            -- Only check during active round - NOT in lobby or ending phase
-            if roundState ~= "round" then
-                freefallT = 0
-                continue
-            end
+            if not roundActive then freefallT = 0 continue end
             if not alive() then continue end
             local root = getRoot()
             if not root then continue end
-
             local pos = root.Position
             local vel = root.AssemblyLinearVelocity
-
             if pos.Y < CFG.MinY then
-                safeReset("fell off Y=" .. math.floor(pos.Y))
-                continue
+                safeReset("fell off Y=" .. math.floor(pos.Y)) continue
             end
             if pos.Y > CFG.MaxY then
-                safeReset("too high Y=" .. math.floor(pos.Y))
-                continue
+                safeReset("too high Y=" .. math.floor(pos.Y)) continue
             end
             if vel.Magnitude > CFG.MaxVelocity then
-                safeReset("flung vel=" .. math.floor(vel.Magnitude))
-                continue
-            end
-            local box = getCoinBox()
-            if box then
-                local mapCenter = box.Parent:GetPivot().Position
-                local mapDist   = (pos - mapCenter).Magnitude
-                if mapDist > CFG.MaxMapDist then
-                    safeReset("too far dist=" .. math.floor(mapDist))
-                    continue
-                end
+                safeReset("flung vel=" .. math.floor(vel.Magnitude)) continue
             end
             local hum = getHum()
             if hum and hum:GetState() == Enum.HumanoidStateType.Freefall then
-                if freefallT == 0 then
-                    freefallT = tick()
+                if freefallT == 0 then freefallT = tick()
                 elseif tick() - freefallT > CFG.FreefallSec then
                     freefallT = 0
                     safeReset("stuck in freefall")
@@ -410,36 +389,26 @@ pcall(function()
     local rsEv = gp:FindFirstChild("RoundStart")
     if rsEv then
         rsEv.OnClientEvent:Connect(function()
-            -- Reset ONCE right at round start so character is fresh
-            if roundState ~= "round" then
-                roundState = "round"
-                print("[Hub] Round started - resetting to start fresh")
-                task.spawn(function()
-                    safeReset("round start fresh")
-                    task.wait(2)   -- wait for respawn
-                    roundState = "round"
-                    farmOn = true
-                    print("[Hub] Farming!")
-                end)
-            end
+            roundActive  = true
+            roundEndDone = false
+            farmOn       = true
+            print("[Hub] Round started - farming!")
         end)
     end
 
     local reEv = gp:FindFirstChild("RoundEndFade")
     if reEv then
         reEv.OnClientEvent:Connect(function()
-            -- Only handle once per round
-            if roundState ~= "round" then return end
-            roundState = "ending"
-            farmOn = false
+            if roundEndDone then return end  -- prevent double fire
+            roundEndDone = true
+            roundActive  = false
+            farmOn       = false
             if curTween then curTween:Cancel() curTween = nil end
             Stats.Rounds = Stats.Rounds + 1
-            print("[Hub] Round ended - one reset to clear fling state")
+            -- ONE reset after round ends, then wait for next RoundStart
             task.spawn(function()
-                task.wait(rnd(1.0, 1.8))
+                task.wait(rnd(1.0, 2.0))
                 safeReset("round ended")
-                -- Stay in lobby state, wait for next RoundStart
-                roundState = "lobby"
                 print("[Hub] Waiting for next round...")
             end)
         end)
@@ -653,8 +622,17 @@ task.spawn(function()
     antiAFK()
     startWatchdog()
     startHopTimer()
-    farmOn = true
-    print("[Hub] Loaded!")
+    -- Don't start farming yet - wait for RoundStart event
+    -- But if we loaded mid-round, start anyway after short delay
+    task.spawn(function()
+        task.wait(5)
+        if not roundActive and getCoinBox() then
+            roundActive = true
+            farmOn = true
+            print("[Hub] Mid-round detected - starting farm")
+        end
+    end)
+    print("[Hub] Loaded - waiting for round!")
 
     while true do
         task.wait(rnd(0.05, 0.1))
@@ -702,13 +680,11 @@ end)
 LP.CharacterAdded:Connect(function()
     task.wait(1.5)
     if State.NoClip then enableNC() end
-    -- Only resume farming if we are in active round
-    -- (not in lobby, not in ending transition)
-    if roundState == "round" and not resetting then
+    if roundActive and not resetting then
         farmOn = true
-        print("[Hub] Respawned during round - resuming farm")
+        print("[Hub] Respawned - farming")
     else
-        print("[Hub] Respawned in lobby - waiting for round")
+        print("[Hub] Respawned - waiting for round")
     end
 end)
 
