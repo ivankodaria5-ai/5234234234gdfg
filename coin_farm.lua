@@ -170,14 +170,16 @@ local function walkToCoin(coin)
     local target = coin.Position + humanOffset()
     local dist   = (root.Position - target).Magnitude
 
-    -- If very far, do ONE small teleport to get closer (not directly to coin)
+    -- If very far, fly at higher speed first to get closer
     if dist >= CFG.TpDist then
-        local midpoint = root.Position:Lerp(target, 0.5)
-        midpoint = midpoint + humanOffset() * 2
-        pcall(function()
-            root.CFrame = CFrame.new(midpoint)
-        end)
-        task.wait(rnd(0.05, 0.12))
+        if curTween then curTween:Cancel() curTween = nil end
+        local midpoint = root.Position:Lerp(target, 0.6) + humanOffset()
+        local fastDur  = math.max(0.3, dist / (CFG.WalkSpeed * 3))
+        local fastInfo = TweenInfo.new(fastDur, Enum.EasingStyle.Linear)
+        curTween = TweenService:Create(root, fastInfo, { CFrame = CFrame.new(midpoint) })
+        curTween:Play()
+        curTween.Completed:Wait()
+        curTween = nil
         dist = (root.Position - target).Magnitude
     end
 
@@ -225,18 +227,34 @@ local function getMapSafePos()
     return nil
 end
 
--- When killed mid-round: snap dead body back to map so we dont fly off
-local function snapToMap()
+-- When killed: fly smoothly back to map center (same tween as coin movement)
+local function flyBackToMap()
     local root = getRoot()
     if not root then return end
-    if curTween then curTween:Cancel() curTween = nil end
     local safePos = getMapSafePos()
     if not safePos then return end
+
+    -- Zero out death velocity first so we stop flying
     pcall(function()
         root.AssemblyLinearVelocity  = Vector3.new(0, 0, 0)
         root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        root.CFrame = CFrame.new(safePos)
     end)
+
+    local dist = (root.Position - safePos).Magnitude
+    if dist < 10 then return end  -- already on map
+
+    -- Fly back at same speed as coin farming
+    local spd  = CFG.WalkSpeed + 4   -- slightly faster since we are dead
+    local dur  = math.max(0.5, dist / spd)
+    local info = TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+    local goal = { CFrame = CFrame.new(safePos + humanOffset()) }
+
+    if curTween then curTween:Cancel() curTween = nil end
+    curTween = TweenService:Create(root, info, goal)
+    curTween:Play()
+    curTween.Completed:Wait()
+    curTween = nil
+    print("[Hub] Flew back to map")
 end
 
 -- Fling murderer off the map hard (used when bag full + we are innocent/sheriff)
@@ -828,35 +846,19 @@ end)
 LP.CharacterAdded:Connect(function()
     local char = LP.Character or LP.CharacterAdded:Wait()
 
-    -- Hook Humanoid.Died to snap back to map when killed
+    -- Hook Humanoid.Died: fly smoothly back to map when killed
     task.spawn(function()
         local hum = char:WaitForChild("Humanoid", 5)
         if not hum then return end
         hum.Died:Connect(function()
             if not roundActive then return end
-            print("[Hub] Killed - snapping back to map")
-            task.wait(0.1)
-            snapToMap()
-            -- Keep snapping for 2 sec in case physics fights back
-            for i = 1, 8 do
-                task.wait(0.25)
-                snapToMap()
-            end
+            print("[Hub] Killed - flying back to map")
+            task.wait(0.3)   -- short pause after death
+            flyBackToMap()
         end)
     end)
 
     task.wait(1.5)
-    -- After respawn: teleport to map center so we start on map, not spawn
-    local safePos = getMapSafePos()
-    if safePos and roundActive then
-        local root = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-        if root then
-            pcall(function()
-                root.CFrame = CFrame.new(safePos)
-            end)
-        end
-    end
-
     if State.NoClip then enableNC() end
     if roundActive and not resetting then
         farmOn = true
