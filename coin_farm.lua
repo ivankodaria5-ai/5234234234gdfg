@@ -1,4 +1,4 @@
--- MM2 Farm Hub v6 | Human-like + Server Hop | Anti-detect
+-- MM2 Farm Hub v7 | Human-like tween flight + 1x death teleport | Anti-detect
 -- request() loader only, ASCII only
 
 if not game:IsLoaded() then game.Loaded:Wait() end
@@ -176,7 +176,7 @@ local function walkToCoin(coin)
     pcall(function() hum.WalkSpeed = spd end)
 
     if curTween then curTween:Cancel() curTween = nil end
-    local dur  = math.max(0.2, dist / spd)
+    local dur  = math.max(0.6, dist / spd)  -- min 0.6s so movement is always visible
     local info = TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
 
     curTween = TweenService:Create(root, info, { CFrame = CFrame.new(target) })
