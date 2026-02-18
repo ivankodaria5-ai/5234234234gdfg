@@ -160,56 +160,23 @@ local function disableNC()
     end
 end
 
--- Human-like movement to coin
--- Uses Humanoid WalkSpeed + TweenService so it looks like walking
+-- Instant teleport to coin then fire touch
 local function walkToCoin(coin)
     if not coin or not coin.Parent then return false end
     local root = getRoot()
-    local hum  = getHum()
-    if not root or not hum then return false end
+    if not root then return false end
 
+    -- Teleport right next to the coin (small random offset so not inside it)
     local target = coin.Position + humanOffset()
-    local dist   = (root.Position - target).Magnitude
+    root.CFrame = CFrame.new(target)
+    task.wait(0.05)
 
-    -- If very far, instant CFrame snap close to target
-    if dist >= CFG.TpDist then
-        if curTween then curTween:Cancel() curTween = nil end
-        local near = target + Vector3.new(rnd(-3, 3), 1, rnd(-3, 3))
-        root.CFrame = CFrame.new(near)
-        task.wait(0.05)
-        dist = (root.Position - target).Magnitude
-    end
+    -- Fire touch to register collection
+    pcall(function() firetouchinterest(root, coin, 0) end)
+    task.wait(0.02)
+    pcall(function() firetouchinterest(root, coin, 0) end)
 
-    -- Set humanlike walkspeed with small jitter
-    local spd = CFG.WalkSpeed + rnd(-CFG.SpeedJitter, CFG.SpeedJitter)
-    spd = math.clamp(spd, 10, 22)
-    pcall(function() hum.WalkSpeed = spd end)
-
-    -- Tween movement - mimics walking speed, looks human
-    if curTween then curTween:Cancel() curTween = nil end
-    local dur  = math.max(0.2, dist / spd)
-    local info = TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-    local goal = { CFrame = CFrame.new(target) }
-
-    curTween = TweenService:Create(root, info, goal)
-    curTween:Play()
-
-    -- Fire touch as we approach (not at start - more realistic)
-    task.delay(dur * 0.7, function()
-        pcall(function()
-            firetouchinterest(root, coin, 0)
-        end)
-    end)
-
-    curTween.Completed:Wait()
-    curTween = nil
-
-    -- Final touch fire at actual arrival
-    pcall(function()
-        firetouchinterest(root, coin, 0)
-    end)
-
-    -- Human-like pause between coins
+    -- Small pause between coins so server doesn't rate-limit
     task.wait(rnd(CFG.MinPause, CFG.MaxPause))
     return true
 end
