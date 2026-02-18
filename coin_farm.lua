@@ -227,24 +227,18 @@ local function getMapSafePos()
     return nil
 end
 
--- When killed: fly smoothly back to map center (same tween as coin movement)
+-- When killed: tween back to coin area at normal speed, no velocity touch
 local function flyBackToMap()
     local root = getRoot()
     if not root then return end
     local safePos = getMapSafePos()
     if not safePos then return end
 
-    -- Zero out death velocity first so we stop flying
-    pcall(function()
-        root.AssemblyLinearVelocity  = Vector3.new(0, 0, 0)
-        root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-    end)
-
     local dist = (root.Position - safePos).Magnitude
-    if dist < 10 then return end  -- already on map
+    if dist < 8 then return end
 
-    -- Fly back at same speed as coin farming
-    local spd  = CFG.WalkSpeed + 4   -- slightly faster since we are dead
+    local spd  = CFG.WalkSpeed + rnd(-CFG.SpeedJitter, CFG.SpeedJitter)
+    spd = math.clamp(spd, 10, 22)
     local dur  = math.max(0.5, dist / spd)
     local info = TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
     local goal = { CFrame = CFrame.new(safePos + humanOffset()) }
@@ -254,7 +248,7 @@ local function flyBackToMap()
     curTween:Play()
     curTween.Completed:Wait()
     curTween = nil
-    print("[Hub] Flew back to map")
+    print("[Hub] Back to map")
 end
 
 -- Fling murderer off the map hard (used when bag full + we are innocent/sheriff)
@@ -315,18 +309,17 @@ local function clearAFOtherConns()
     afOtherConns = {}
 end
 
--- Zero out physics on other players so they cant transfer velocity to us
+-- NoCollision with other players so they cant push us
 local function hookOtherPlayer(plr)
     if plr == LP then return end
     local conn
     conn = RunService.Heartbeat:Connect(function()
         if not plr.Character then return end
-        for _, p in pairs(plr.Character:GetDescendants()) do
-            if p:IsA("BasePart") then
-                pcall(function()
-                    p.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
-                end)
-            end
+        local root = plr.Character:FindFirstChild("HumanoidRootPart")
+        if root then
+            pcall(function()
+                root.CanCollide = false
+            end)
         end
     end)
     table.insert(afOtherConns, conn)
@@ -342,34 +335,19 @@ local function startAntiFling()
     -- Hook new players as they join
     Players.PlayerAdded:Connect(hookOtherPlayer)
 
-    -- Protect own character every frame
+    -- Protect own character: only anti-ragdoll, no velocity changes
     antiFlingConn = RunService.Heartbeat:Connect(function()
+        local hum = getHum()
+        if not hum then return end
+        pcall(function()
+            hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll,    false)
+            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+        end)
+        -- When flung (high velocity) fly back to map using tween
         local root = getRoot()
         if not root then return end
-        local vel = root.AssemblyLinearVelocity
-
-        -- If velocity is extreme (being flung) - zero it out instantly
-        if vel.Magnitude > 50 then
-            pcall(function()
-                root.AssemblyLinearVelocity  = Vector3.new(0, 0, 0)
-                root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-            end)
-        end
-
-        -- Always kill rotational velocity (prevents spinning/ragdoll)
-        if root.AssemblyAngularVelocity.Magnitude > 0.1 then
-            pcall(function()
-                root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-            end)
-        end
-
-        -- Keep humanoid upright (anti-ragdoll)
-        local hum = getHum()
-        if hum then
-            pcall(function()
-                hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll,   false)
-                hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-            end)
+        if root.AssemblyLinearVelocity.Magnitude > 80 and not curTween then
+            task.spawn(flyBackToMap)
         end
     end)
     print("[Hub] Anti-fling active")
