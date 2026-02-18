@@ -1,16 +1,18 @@
--- MM2 Farm Hub v5 | Human-like movement | Anti-detect
+-- MM2 Farm Hub v6 | Human-like + Server Hop | Anti-detect
 -- request() loader only, ASCII only
 
 if not game:IsLoaded() then game.Loaded:Wait() end
 if _G.MM2HubLoaded then return end
 _G.MM2HubLoaded = true
 
-local Players      = game:GetService("Players")
-local RunService   = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-local UIS          = game:GetService("UserInputService")
-local RS           = game:GetService("ReplicatedStorage")
-local LP           = Players.LocalPlayer
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local TweenService     = game:GetService("TweenService")
+local UIS              = game:GetService("UserInputService")
+local RS               = game:GetService("ReplicatedStorage")
+local TeleportService  = game:GetService("TeleportService")
+local HttpService      = game:GetService("HttpService")
+local LP               = Players.LocalPlayer
 
 -- Settings
 local CFG = {
@@ -23,18 +25,23 @@ local CFG = {
     CombatRange  = 60,
     CombatDelay  = 0.5,
     -- Safety / watchdog
-    MaxVelocity  = 80,    -- if speed exceeds this we are being flung -> reset
-    MinY         = -80,   -- if Y drops below this we fell off map -> reset
-    MaxY         = 500,   -- if Y exceeds this we flew off -> reset
-    MaxMapDist   = 600,   -- if far from map center -> reset
-    FreefallSec  = 3,     -- seconds in freefall before reset
+    MaxVelocity  = 80,
+    MinY         = -80,
+    MaxY         = 500,
+    MaxMapDist   = 600,
+    FreefallSec  = 3,
+    -- Server hop
+    PlaceId      = 142823291,
+    HopInterval  = 1800,   -- seconds between auto-hops (30 min)
+    ScriptUrl    = "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/coin_farm.lua",
 }
 
 local State = {
-    CoinFarm  = true,
-    Combat    = true,
-    NoClip    = true,
-    AutoReset = true,
+    CoinFarm   = true,
+    Combat     = true,
+    NoClip     = true,
+    AutoReset  = true,
+    ServerHop  = true,
 }
 
 local Stats = {
@@ -47,8 +54,11 @@ local farmOn      = false
 local curTween    = nil
 local ncConn      = nil
 local lastCmb     = 0
-local resetting   = false  -- prevent double-reset
-local freefallT   = 0      -- timestamp when freefall started
+local resetting   = false
+local freefallT   = 0
+local hopQueued   = false
+local hopStart    = tick()    -- track when we joined this server
+local hopTimerLbl = nil       -- GUI label ref (set later)
 
 -- Utility
 local function getChar() return LP.Character end
@@ -282,6 +292,95 @@ local function startWatchdog()
     end)
 end
 
+-- Server hop: find a random server with free slots
+local function findServer()
+    local servers = {}
+    local cursor  = ""
+    local tries   = 0
+    repeat
+        tries = tries + 1
+        local url = "https://games.roblox.com/v1/games/" .. CFG.PlaceId ..
+                    "/servers/Public?sortOrder=Desc&limit=100&cursor=" .. cursor
+        local ok, data = pcall(function()
+            local res = request({ Url = url, Method = "GET" })
+            return HttpService:JSONDecode(res.Body)
+        end)
+        if ok and data and data.data then
+            for _, sv in pairs(data.data) do
+                if sv.id ~= game.JobId and sv.playing < sv.maxPlayers then
+                    table.insert(servers, sv.id)
+                end
+            end
+            cursor = data.nextPageCursor or ""
+        else
+            break
+        end
+    until cursor == "" or #servers >= 50 or tries >= 3
+    if #servers > 0 then
+        return servers[math.random(1, #servers)]
+    end
+    return nil
+end
+
+-- Queue our script to auto-run on the new server after teleport
+local function queueScript()
+    if hopQueued then return end
+    hopQueued = true
+    local loader = 'loadstring(request({Url="' .. CFG.ScriptUrl .. '",Method="GET"}).Body)()'
+    pcall(function()
+        local qf = queueonteleport or syn and syn.queue_on_teleport
+        if qf then
+            qf(loader)
+            print("[Hub] Script queued for next server")
+        end
+    end)
+end
+
+local function doServerHop()
+    print("[Hub] Looking for server to hop...")
+    local serverId = findServer()
+    queueScript()
+    pcall(function()
+        if serverId then
+            print("[Hub] Hopping to: " .. serverId)
+            TeleportService:TeleportToPlaceInstance(CFG.PlaceId, serverId, LP)
+        else
+            print("[Hub] No server found, random teleport")
+            TeleportService:Teleport(CFG.PlaceId, LP)
+        end
+    end)
+end
+
+-- Server hop timer loop
+local function startHopTimer()
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            if not State.ServerHop then continue end
+            local elapsed = tick() - hopStart
+            local left    = CFG.HopInterval - elapsed
+            -- Update GUI timer label
+            if hopTimerLbl then
+                if left > 0 then
+                    local m = math.floor(left / 60)
+                    local s = math.floor(left % 60)
+                    hopTimerLbl.Text = "Hop in: " .. m .. "m " .. s .. "s"
+                    hopTimerLbl.TextColor3 = Color3.fromRGB(180, 180, 180)
+                else
+                    hopTimerLbl.Text = "Hopping..."
+                    hopTimerLbl.TextColor3 = Color3.fromRGB(255, 200, 50)
+                end
+            end
+            -- Time to hop
+            if left <= 0 then
+                hopStart = tick()
+                hopQueued = false
+                doServerHop()
+            end
+        end
+    end)
+end
+
 -- AntiAFK
 local function antiAFK()
     pcall(function()
@@ -356,8 +455,8 @@ local function buildGUI()
     sg.Parent = LP.PlayerGui
 
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 230, 0, 305)
-    frame.Position = UDim2.new(0, 10, 0.25, 0)
+    frame.Size = UDim2.new(0, 230, 0, 410)
+    frame.Position = UDim2.new(0, 10, 0.15, 0)
     frame.BackgroundColor3 = Color3.fromRGB(14, 14, 20)
     frame.BackgroundTransparency = 0.08
     frame.BorderSizePixel = 0
@@ -429,7 +528,7 @@ local function buildGUI()
     end)
 
     local sf = Instance.new("Frame")
-    sf.Size = UDim2.new(1, -16, 0, 78)
+    sf.Size = UDim2.new(1, -16, 0, 100)
     sf.Position = UDim2.new(0, 8, 0, 48)
     sf.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
     sf.BorderSizePixel = 0
@@ -452,6 +551,8 @@ local function buildGUI()
     local lC = mkL("Coins:  0",  4)
     local lF = mkL("Flings: 0", 27)
     local lR = mkL("Role:   ?", 50)
+    local lH = mkL("Hop in: --",73)
+    hopTimerLbl = lH
 
     local function mkBtn(lbl, key, y, cOn, cOff)
         local b = Instance.new("TextButton")
@@ -481,9 +582,28 @@ local function buildGUI()
             upd()
         end)
     end
-    mkBtn("FARM COINS", "CoinFarm", 134, Color3.fromRGB(28,155,55),  Color3.fromRGB(65,65,65))
-    mkBtn("COMBAT",     "Combat",   190, Color3.fromRGB(195,55,55),  Color3.fromRGB(65,65,65))
-    mkBtn("NOCLIP",     "NoClip",   246, Color3.fromRGB(95,55,200),  Color3.fromRGB(65,65,65))
+    mkBtn("FARM COINS",  "CoinFarm",  156, Color3.fromRGB(28,155,55),  Color3.fromRGB(65,65,65))
+    mkBtn("COMBAT",      "Combat",    212, Color3.fromRGB(195,55,55),  Color3.fromRGB(65,65,65))
+    mkBtn("NOCLIP",      "NoClip",    268, Color3.fromRGB(95,55,200),  Color3.fromRGB(65,65,65))
+    mkBtn("SERVER HOP",  "ServerHop", 324, Color3.fromRGB(200,130,20), Color3.fromRGB(65,65,65))
+
+    -- Manual hop button
+    local hopNowBtn = Instance.new("TextButton")
+    hopNowBtn.Size = UDim2.new(1, -16, 0, 34)
+    hopNowBtn.Position = UDim2.new(0, 8, 0, 368)
+    hopNowBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+    hopNowBtn.Text = "HOP NOW"
+    hopNowBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
+    hopNowBtn.TextSize = 13
+    hopNowBtn.Font = Enum.Font.GothamBold
+    hopNowBtn.BorderSizePixel = 0
+    hopNowBtn.Parent = frame
+    Instance.new("UICorner", hopNowBtn).CornerRadius = UDim.new(0, 8)
+    hopNowBtn.MouseButton1Click:Connect(function()
+        hopQueued = false
+        hopStart  = tick() - CFG.HopInterval
+        print("[Hub] Manual hop triggered")
+    end)
 
     task.spawn(function()
         while sg and sg.Parent do
@@ -514,6 +634,7 @@ task.spawn(function()
     enableNC()
     antiAFK()
     startWatchdog()
+    startHopTimer()
     farmOn = true
     print("[Hub] Loaded!")
 
