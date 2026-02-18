@@ -727,17 +727,7 @@ task.spawn(function()
     antiAFK()
     startHopTimer()
     if State.AntiFling then startAntiFling() end
-    -- Don't start farming yet - wait for RoundStart event
-    -- But if we loaded mid-round, start anyway after short delay
-    task.spawn(function()
-        task.wait(5)
-        if not roundActive and getCoinBox() then
-            roundActive = true
-            farmOn = true
-            print("[Hub] Mid-round detected - starting farm")
-        end
-    end)
-    print("[Hub] Loaded - waiting for round!")
+    print("[Hub] Loaded - waiting for RoundStart!")
 
     while true do
         task.wait(rnd(0.05, 0.1))
@@ -783,18 +773,12 @@ LP.CharacterRemoving:Connect(function()
 end)
 
 LP.CharacterAdded:Connect(function()
-    local char = LP.Character or LP.CharacterAdded:Wait()
-
-    -- After respawn just continue farming
-
     task.wait(1.5)
     if State.NoClip then enableNC() end
-    if roundActive and not resetting then
-        farmOn = true
-        print("[Hub] Respawned - farming")
-    else
-        print("[Hub] Respawned - waiting for round")
-    end
+    -- Never auto-start farming on respawn
+    -- Only RoundStart event enables farming
+    farmOn = false
+    print("[Hub] Respawned - waiting for next round")
 end)
 
 print("[Hub] Loaded.")
