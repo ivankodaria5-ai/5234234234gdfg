@@ -215,6 +215,61 @@ local function walkToCoin(coin)
     return true
 end
 
+-- Get a safe position on the current map (center of CoinContainer)
+local function getMapSafePos()
+    local box = getCoinBox()
+    if box and box.Parent then
+        local ok, pivot = pcall(function() return box.Parent:GetPivot() end)
+        if ok then return pivot.Position + Vector3.new(0, 6, 0) end
+    end
+    return nil
+end
+
+-- When killed mid-round: snap dead body back to map so we dont fly off
+local function snapToMap()
+    local root = getRoot()
+    if not root then return end
+    if curTween then curTween:Cancel() curTween = nil end
+    local safePos = getMapSafePos()
+    if not safePos then return end
+    pcall(function()
+        root.AssemblyLinearVelocity  = Vector3.new(0, 0, 0)
+        root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        root.CFrame = CFrame.new(safePos)
+    end)
+end
+
+-- Fling murderer off the map hard (used when bag full + we are innocent/sheriff)
+local function superFlingMurderer()
+    local murderer = nil
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LP and plr.Character then
+            if getRole(plr) == "M" then murderer = plr break end
+        end
+    end
+    if not murderer or not murderer.Character then return end
+    print("[Hub] Bag full - flinging murderer!")
+    -- Fling hard 15 times over 3 seconds to make sure they fly off
+    task.spawn(function()
+        for i = 1, 15 do
+            if not murderer.Character then break end
+            local tr = murderer.Character:FindFirstChild("HumanoidRootPart")
+            if tr then
+                pcall(function()
+                    tr.AssemblyLinearVelocity = Vector3.new(
+                        rnd(-1000, 1000), 2000, rnd(-1000, 1000)
+                    )
+                    tr.AssemblyAngularVelocity = Vector3.new(
+                        rnd(-50, 50), rnd(-50, 50), rnd(-50, 50)
+                    )
+                end)
+            end
+            task.wait(0.2)
+        end
+        print("[Hub] Murderer flung!")
+    end)
+end
+
 -- Safe reset (respawn character)
 local function safeReset(reason)
     if resetting then return end
@@ -457,13 +512,41 @@ pcall(function()
     if ccEv then
         ccEv.OnClientEvent:Connect(function(_, current, maxC)
             Stats.Coins = tonumber(current) or Stats.Coins
-            if State.AutoReset and tonumber(current) == tonumber(maxC) then
+            if tonumber(current) == tonumber(maxC) then
                 farmOn = false
-                task.wait(rnd(0.5, 1.2))
-                pcall(function()
-                    local h = getHum()
-                    if h then h.Health = 0 end
-                end)
+                print("[Hub] Bag full!")
+                local role = myRole()
+                if role == "I" then
+                    -- Innocent with no gun: fling murderer off map
+                    superFlingMurderer()
+                    task.wait(rnd(1.0, 1.5))
+                    -- Then reset to start next bag cycle
+                    if State.AutoReset then
+                        pcall(function()
+                            local h = getHum()
+                            if h then h.Health = 0 end
+                        end)
+                    end
+                elseif role == "S" then
+                    -- Sheriff: try to shoot murderer (fling as backup)
+                    superFlingMurderer()
+                    task.wait(rnd(0.8, 1.2))
+                    if State.AutoReset then
+                        pcall(function()
+                            local h = getHum()
+                            if h then h.Health = 0 end
+                        end)
+                    end
+                else
+                    -- Murderer: just reset for next bag
+                    if State.AutoReset then
+                        task.wait(rnd(0.5, 1.0))
+                        pcall(function()
+                            local h = getHum()
+                            if h then h.Health = 0 end
+                        end)
+                    end
+                end
             end
         end)
     end
@@ -743,7 +826,37 @@ LP.CharacterRemoving:Connect(function()
 end)
 
 LP.CharacterAdded:Connect(function()
+    local char = LP.Character or LP.CharacterAdded:Wait()
+
+    -- Hook Humanoid.Died to snap back to map when killed
+    task.spawn(function()
+        local hum = char:WaitForChild("Humanoid", 5)
+        if not hum then return end
+        hum.Died:Connect(function()
+            if not roundActive then return end
+            print("[Hub] Killed - snapping back to map")
+            task.wait(0.1)
+            snapToMap()
+            -- Keep snapping for 2 sec in case physics fights back
+            for i = 1, 8 do
+                task.wait(0.25)
+                snapToMap()
+            end
+        end)
+    end)
+
     task.wait(1.5)
+    -- After respawn: teleport to map center so we start on map, not spawn
+    local safePos = getMapSafePos()
+    if safePos and roundActive then
+        local root = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        if root then
+            pcall(function()
+                root.CFrame = CFrame.new(safePos)
+            end)
+        end
+    end
+
     if State.NoClip then enableNC() end
     if roundActive and not resetting then
         farmOn = true
