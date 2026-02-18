@@ -479,6 +479,35 @@ local function startHopTimer()
     end)
 end
 
+-- Auto-select device screen (appears after server hop)
+local function autoSelectDevice()
+    task.spawn(function()
+        -- Wait up to 15 seconds for device selection screen to appear
+        local deadline = tick() + 15
+        while tick() < deadline do
+            task.wait(0.3)
+            pcall(function()
+                for _, gui in pairs(LP.PlayerGui:GetChildren()) do
+                    if not gui:IsA("ScreenGui") then continue end
+                    for _, btn in pairs(gui:GetDescendants()) do
+                        if btn:IsA("TextButton") or btn:IsA("ImageButton") then
+                            local txt = btn.Name .. " " .. (btn:IsA("TextButton") and btn.Text or "")
+                            -- Match "tablet", "таблетка", "Tablet" etc
+                            if string.find(string.lower(txt), "tablet") or
+                               string.find(string.lower(txt), "таблет") then
+                                btn.MouseButton1Click:Fire()
+                                pcall(function() btn:Activate() end)
+                                print("[Hub] Auto-selected: Tablet")
+                                return
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+end
+
 -- AntiAFK
 local function antiAFK()
     pcall(function()
@@ -805,6 +834,7 @@ end
 -- Main loop
 task.spawn(function()
     task.wait(3)
+    autoSelectDevice()
     buildGUI()
     enableNC()
     antiAFK()
