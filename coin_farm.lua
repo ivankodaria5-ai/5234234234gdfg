@@ -171,16 +171,12 @@ local function walkToCoin(coin)
     local target = coin.Position + humanOffset()
     local dist   = (root.Position - target).Magnitude
 
-    -- If very far, fly at higher speed first to get closer
+    -- If very far, instant CFrame snap close to target
     if dist >= CFG.TpDist then
         if curTween then curTween:Cancel() curTween = nil end
-        local midpoint = root.Position:Lerp(target, 0.6) + humanOffset()
-        local fastDur  = math.max(0.3, dist / (CFG.WalkSpeed * 3))
-        local fastInfo = TweenInfo.new(fastDur, Enum.EasingStyle.Linear)
-        curTween = TweenService:Create(root, fastInfo, { CFrame = CFrame.new(midpoint) })
-        curTween:Play()
-        curTween.Completed:Wait()
-        curTween = nil
+        local near = target + Vector3.new(rnd(-3, 3), 1, rnd(-3, 3))
+        root.CFrame = CFrame.new(near)
+        task.wait(0.05)
         dist = (root.Position - target).Magnitude
     end
 
