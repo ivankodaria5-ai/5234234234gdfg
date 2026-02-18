@@ -779,13 +779,40 @@ LP.CharacterRemoving:Connect(function()
     end)
 end)
 
+-- Teleport near a random coin in the CoinContainer (not on top of it)
+local function snapNearCoins()
+    local root = getRoot()
+    if not root then return end
+    local box = getCoinBox()
+    if not box then return end
+    -- Pick a random coin from the box to land near
+    local coins = {}
+    for _, c in pairs(box:GetChildren()) do
+        if c:IsA("BasePart") and c:FindFirstChild("TouchInterest") then
+            table.insert(coins, c)
+        end
+    end
+    if #coins == 0 then return end
+    local pick = coins[math.random(1, math.min(#coins, 10))]
+    -- Offset so we're beside it, not inside it
+    local offset = Vector3.new(rnd(-4, 4), 3, rnd(-4, 4))
+    root.CFrame = CFrame.new(pick.Position + offset)
+    print("[Hub] Snapped near coins after death")
+end
+
 LP.CharacterAdded:Connect(function()
     task.wait(1.5)
     if State.NoClip then enableNC() end
-    -- Never auto-start farming on respawn
-    -- Only RoundStart event enables farming
-    farmOn = false
-    print("[Hub] Respawned - waiting for next round")
+    if roundActive then
+        -- We died mid-round: teleport near coins and continue farming
+        task.wait(0.5)
+        snapNearCoins()
+        farmOn = true
+        print("[Hub] Respawned mid-round - continuing farm")
+    else
+        farmOn = false
+        print("[Hub] Respawned - waiting for next round")
+    end
 end)
 
 print("[Hub] Loaded.")
