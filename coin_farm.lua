@@ -877,6 +877,7 @@ task.spawn(function()
 end)
 
 LP.CharacterRemoving:Connect(function()
+    farmOn = false   -- stop farming immediately on death
     if curTween then curTween:Cancel() curTween = nil end
     disableNC()
     pcall(function()
@@ -889,26 +890,28 @@ end)
 local function snapNearCoins()
     for attempt = 1, 8 do
         local root = getRoot()
-        if not root then task.wait(0.5) continue end
-        local box = getCoinBox()
-        if not box then task.wait(0.5) continue end
-        local coins = {}
-        for _, c in pairs(box:GetChildren()) do
-            if c:IsA("BasePart") and c:FindFirstChild("TouchInterest") then
-                table.insert(coins, c)
+        local box  = root and getCoinBox()
+        if root and box then
+            local coins = {}
+            for _, c in pairs(box:GetChildren()) do
+                if c:IsA("BasePart") and c:FindFirstChild("TouchInterest") then
+                    table.insert(coins, c)
+                end
+            end
+            if #coins > 0 then
+                -- Pick nearest coin
+                local best, bestD = nil, math.huge
+                for _, c in pairs(coins) do
+                    local d = (root.Position - c.Position).Magnitude
+                    if d < bestD then best = c bestD = d end
+                end
+                local offset = Vector3.new(rnd(-3, 3), 2, rnd(-3, 3))
+                root.CFrame = CFrame.new(best.Position + offset)
+                print("[Hub] Snapped near coins (attempt " .. attempt .. ")")
+                return true
             end
         end
-        if #coins == 0 then task.wait(0.5) continue end
-        -- Pick nearest coin so we start from best spot
-        local best, bestD = nil, math.huge
-        for _, c in pairs(coins) do
-            local d = (root.Position - c.Position).Magnitude
-            if d < bestD then best = c bestD = d end
-        end
-        local offset = Vector3.new(rnd(-3, 3), 2, rnd(-3, 3))
-        root.CFrame = CFrame.new(best.Position + offset)
-        print("[Hub] Snapped near coins (attempt " .. attempt .. ")")
-        return true
+        task.wait(0.5)
     end
     print("[Hub] snapNearCoins failed - no coins found")
     return false
