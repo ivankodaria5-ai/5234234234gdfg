@@ -24,12 +24,6 @@ local CFG = {
     FlingForce   = 80,
     CombatRange  = 60,
     CombatDelay  = 0.5,
-    -- Safety / watchdog
-    MaxVelocity  = 80,
-    MinY         = -80,
-    MaxY         = 500,
-    MaxMapDist   = 600,
-    FreefallSec  = 3,
     -- Server hop
     PlaceId      = 142823291,
     HopInterval  = 1800,   -- seconds between auto-hops (30 min)
@@ -55,7 +49,6 @@ local curTween    = nil
 local ncConn      = nil
 local lastCmb     = 0
 local resetting   = false
-local freefallT   = 0
 local hopQueued   = false
 local hopStart    = tick()
 local hopTimerLbl = nil
@@ -237,39 +230,7 @@ local function safeReset(reason)
     resetting = false
 end
 
--- Watchdog: only runs during active round
-local function startWatchdog()
-    task.spawn(function()
-        while true do
-            task.wait(0.25)
-            if not roundActive then freefallT = 0 continue end
-            if not alive() then continue end
-            local root = getRoot()
-            if not root then continue end
-            local pos = root.Position
-            local vel = root.AssemblyLinearVelocity
-            if pos.Y < CFG.MinY then
-                safeReset("fell off Y=" .. math.floor(pos.Y)) continue
-            end
-            if pos.Y > CFG.MaxY then
-                safeReset("too high Y=" .. math.floor(pos.Y)) continue
-            end
-            if vel.Magnitude > CFG.MaxVelocity then
-                safeReset("flung vel=" .. math.floor(vel.Magnitude)) continue
-            end
-            local hum = getHum()
-            if hum and hum:GetState() == Enum.HumanoidStateType.Freefall then
-                if freefallT == 0 then freefallT = tick()
-                elseif tick() - freefallT > CFG.FreefallSec then
-                    freefallT = 0
-                    safeReset("stuck in freefall")
-                end
-            else
-                freefallT = 0
-            end
-        end
-    end)
-end
+-- Watchdog removed: resets only happen at round end
 
 -- Server hop: find a random server with free slots
 local function findServer()
@@ -620,7 +581,6 @@ task.spawn(function()
     buildGUI()
     enableNC()
     antiAFK()
-    startWatchdog()
     startHopTimer()
     -- Don't start farming yet - wait for RoundStart event
     -- But if we loaded mid-round, start anyway after short delay
