@@ -36,6 +36,7 @@ local State = {
     NoClip     = true,
     AutoReset  = true,
     ServerHop  = true,
+    AntiFling  = true,
 }
 
 local Stats = {
@@ -230,7 +231,84 @@ local function safeReset(reason)
     resetting = false
 end
 
--- Watchdog removed: resets only happen at round end
+-- Anti-fling: protect our character from being launched
+local antiFlingConn   = nil
+local afOtherConns    = {}
+
+local function clearAFOtherConns()
+    for _, c in pairs(afOtherConns) do
+        pcall(function() c:Disconnect() end)
+    end
+    afOtherConns = {}
+end
+
+-- Zero out physics on other players so they cant transfer velocity to us
+local function hookOtherPlayer(plr)
+    if plr == LP then return end
+    local conn
+    conn = RunService.Heartbeat:Connect(function()
+        if not plr.Character then return end
+        for _, p in pairs(plr.Character:GetDescendants()) do
+            if p:IsA("BasePart") then
+                pcall(function()
+                    p.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
+                end)
+            end
+        end
+    end)
+    table.insert(afOtherConns, conn)
+end
+
+local function startAntiFling()
+    if antiFlingConn then return end
+
+    -- Hook all existing players
+    for _, plr in pairs(Players:GetPlayers()) do
+        hookOtherPlayer(plr)
+    end
+    -- Hook new players as they join
+    Players.PlayerAdded:Connect(hookOtherPlayer)
+
+    -- Protect own character every frame
+    antiFlingConn = RunService.Heartbeat:Connect(function()
+        local root = getRoot()
+        if not root then return end
+        local vel = root.AssemblyLinearVelocity
+
+        -- If velocity is extreme (being flung) - zero it out instantly
+        if vel.Magnitude > 50 then
+            pcall(function()
+                root.AssemblyLinearVelocity  = Vector3.new(0, 0, 0)
+                root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            end)
+        end
+
+        -- Always kill rotational velocity (prevents spinning/ragdoll)
+        if root.AssemblyAngularVelocity.Magnitude > 0.1 then
+            pcall(function()
+                root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            end)
+        end
+
+        -- Keep humanoid upright (anti-ragdoll)
+        local hum = getHum()
+        if hum then
+            pcall(function()
+                hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll,   false)
+                hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+            end)
+        end
+    end)
+    print("[Hub] Anti-fling active")
+end
+
+local function stopAntiFling()
+    if antiFlingConn then
+        antiFlingConn:Disconnect()
+        antiFlingConn = nil
+    end
+    clearAFOtherConns()
+end
 
 -- Server hop: find a random server with free slots
 local function findServer()
@@ -403,7 +481,7 @@ local function buildGUI()
     sg.Parent = LP.PlayerGui
 
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 230, 0, 410)
+    frame.Size = UDim2.new(0, 230, 0, 470)
     frame.Position = UDim2.new(0, 10, 0.15, 0)
     frame.BackgroundColor3 = Color3.fromRGB(14, 14, 20)
     frame.BackgroundTransparency = 0.08
@@ -535,10 +613,36 @@ local function buildGUI()
     mkBtn("NOCLIP",      "NoClip",    268, Color3.fromRGB(95,55,200),  Color3.fromRGB(65,65,65))
     mkBtn("SERVER HOP",  "ServerHop", 324, Color3.fromRGB(200,130,20), Color3.fromRGB(65,65,65))
 
+    -- Anti-fling button with custom toggle logic
+    local afBtn = Instance.new("TextButton")
+    afBtn.Size = UDim2.new(1, -16, 0, 48)
+    afBtn.Position = UDim2.new(0, 8, 0, 380)
+    afBtn.BorderSizePixel = 0
+    afBtn.Font = Enum.Font.GothamBold
+    afBtn.TextSize = 14
+    afBtn.TextColor3 = Color3.new(1, 1, 1)
+    afBtn.Parent = frame
+    Instance.new("UICorner", afBtn).CornerRadius = UDim.new(0, 8)
+    local function updAF()
+        if State.AntiFling then
+            afBtn.BackgroundColor3 = Color3.fromRGB(20, 160, 160)
+            afBtn.Text = "ANTI-FLING  [ON]"
+        else
+            afBtn.BackgroundColor3 = Color3.fromRGB(65, 65, 65)
+            afBtn.Text = "ANTI-FLING  [OFF]"
+        end
+    end
+    updAF()
+    afBtn.MouseButton1Click:Connect(function()
+        State.AntiFling = not State.AntiFling
+        if State.AntiFling then startAntiFling() else stopAntiFling() end
+        updAF()
+    end)
+
     -- Manual hop button
     local hopNowBtn = Instance.new("TextButton")
     hopNowBtn.Size = UDim2.new(1, -16, 0, 34)
-    hopNowBtn.Position = UDim2.new(0, 8, 0, 368)
+    hopNowBtn.Position = UDim2.new(0, 8, 0, 428)
     hopNowBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
     hopNowBtn.Text = "HOP NOW"
     hopNowBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
@@ -582,6 +686,7 @@ task.spawn(function()
     enableNC()
     antiAFK()
     startHopTimer()
+    if State.AntiFling then startAntiFling() end
     -- Don't start farming yet - wait for RoundStart event
     -- But if we loaded mid-round, start anyway after short delay
     task.spawn(function()
