@@ -1,33 +1,28 @@
--- MM2 Farm Hub v3 | Mobile GUI | Based on real MM2 structure
--- Compatible with Delta Android (no continue, no +=, pairs() everywhere)
+-- MM2 Farm Hub v4 | Mobile GUI | Delta Android
+-- ASCII only, no unicode, no cyrillic, Lua 5.1 compatible
 
-if not game:IsLoaded() then
-    game.Loaded:Wait()
-end
-
+if not game:IsLoaded() then game.Loaded:Wait() end
 if _G.MM2HubLoaded then return end
 _G.MM2HubLoaded = true
 
-local Players       = game:GetService("Players")
-local RunService    = game:GetService("RunService")
-local TweenService  = game:GetService("TweenService")
-local UIS           = game:GetService("UserInputService")
-local RS            = game:GetService("ReplicatedStorage")
-local LocalPlayer   = Players.LocalPlayer
+local Players      = game:GetService("Players")
+local RunService   = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UIS          = game:GetService("UserInputService")
+local RS           = game:GetService("ReplicatedStorage")
+local LP           = Players.LocalPlayer
 
--- ── Настройки ──────────────────────────────────────────────
-local FLY_SPEED        = 26    -- скорость тween к монете
-local TP_DISTANCE      = 180   -- дистанция при которой телепортируем а не tweenim
-local FLING_FORCE      = 80
-local COMBAT_RANGE     = 60
-local COMBAT_DELAY     = 0.4
+local FLY_SPEED    = 26
+local TP_DIST      = 180
+local FLING_F      = 80
+local CMB_RANGE    = 60
+local CMB_DELAY    = 0.4
 
--- ── Состояние ──────────────────────────────────────────────
 local State = {
-    CoinFarm = true,
-    Combat   = true,
-    NoClip   = true,
-    AutoReset = true,   -- убивать себя когда сумка полная
+    CoinFarm  = true,
+    Combat    = true,
+    NoClip    = true,
+    AutoReset = true,
 }
 
 local Stats = {
@@ -36,27 +31,28 @@ local Stats = {
     Rounds = 0,
 }
 
-local farmActive    = false
-local activeTween   = nil
-local noClipConn    = nil
-local lastCombat    = 0
+local farmOn     = false
+local curTween   = nil
+local ncConn     = nil
+local lastCmb    = 0
 
--- ── Утилиты ────────────────────────────────────────────────
 local function getChar()
-    return LocalPlayer.Character
+    return LP.Character
 end
 
 local function getRoot()
     local c = getChar()
-    return c and c:FindFirstChild("HumanoidRootPart")
+    if c then return c:FindFirstChild("HumanoidRootPart") end
+    return nil
 end
 
 local function getHum()
     local c = getChar()
-    return c and c:FindFirstChild("Humanoid")
+    if c then return c:FindFirstChild("Humanoid") end
+    return nil
 end
 
-local function isAlive()
+local function alive()
     local h = getHum()
     return h ~= nil and h.Health > 0
 end
@@ -65,7 +61,6 @@ local function rnd(a, b)
     return a + math.random() * (b - a)
 end
 
--- ── Поиск CoinContainer в активной карте ───────────────────
 local function getCoinContainer()
     for _, v in pairs(workspace:GetChildren()) do
         if v:IsA("Model") and v:FindFirstChild("CoinContainer") then
@@ -75,17 +70,14 @@ local function getCoinContainer()
     return nil
 end
 
--- ── Поиск ближайшей монеты (проверяем TouchInterest) ───────
 local function nearestCoin()
     local root = getRoot()
     if not root then return nil, 0 end
-    local container = getCoinContainer()
-    if not container then return nil, 0 end
-
+    local box = getCoinContainer()
+    if not box then return nil, 0 end
     local best  = nil
     local bestD = math.huge
-
-    for _, coin in pairs(container:GetChildren()) do
+    for _, coin in pairs(box:GetChildren()) do
         if coin:IsA("BasePart") and coin:FindFirstChild("TouchInterest") then
             local d = (root.Position - coin.Position).Magnitude
             if d < bestD then
@@ -94,60 +86,50 @@ local function nearestCoin()
             end
         end
     end
-
     return best, bestD
 end
 
--- ── Определение роли ───────────────────────────────────────
 local function getRole(plr)
     local c  = plr.Character
     local bp = plr:FindFirstChild("Backpack")
-    if not c then return "Innocent" end
-    if c:FindFirstChild("Knife") or (bp and bp:FindFirstChild("Knife")) then
-        return "Murderer"
-    end
-    if c:FindFirstChild("Gun") or (bp and bp:FindFirstChild("Gun")) then
-        return "Sheriff"
-    end
-    return "Innocent"
+    if not c then return "I" end
+    if c:FindFirstChild("Knife") or (bp and bp:FindFirstChild("Knife")) then return "M" end
+    if c:FindFirstChild("Gun")   or (bp and bp:FindFirstChild("Gun"))   then return "S" end
+    return "I"
 end
 
 local function myRole()
-    return getRole(LocalPlayer)
+    return getRole(LP)
 end
 
--- ── Цель для боёвки ────────────────────────────────────────
 local function findTarget()
     local root = getRoot()
     if not root then return nil end
     local role  = myRole()
     local best  = nil
     local bestD = math.huge
-
     for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer then
+        if plr ~= LP then
             local tr = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
             if tr then
-                local d   = (root.Position - tr.Position).Magnitude
-                local pr  = getRole(plr)
-                local ok  = (role == "Murderer") or
-                            (role == "Sheriff"  and pr == "Murderer") or
-                            (role == "Innocent" and pr == "Murderer")
-                if ok and d < COMBAT_RANGE and d < bestD then
+                local d  = (root.Position - tr.Position).Magnitude
+                local pr = getRole(plr)
+                local ok = (role == "M") or
+                           (role == "S" and pr == "M") or
+                           (role == "I" and pr == "M")
+                if ok and d < CMB_RANGE and d < bestD then
                     best  = plr
                     bestD = d
                 end
             end
         end
     end
-
     return best
 end
 
--- ── NoClip ─────────────────────────────────────────────────
-local function enableNoclip()
-    if noClipConn then return end
-    noClipConn = RunService.Stepped:Connect(function()
+local function enableNC()
+    if ncConn then return end
+    ncConn = RunService.Stepped:Connect(function()
         if State.NoClip then
             local c = getChar()
             if c then
@@ -161,10 +143,10 @@ local function enableNoclip()
     end)
 end
 
-local function disableNoclip()
-    if noClipConn then
-        noClipConn:Disconnect()
-        noClipConn = nil
+local function disableNC()
+    if ncConn then
+        ncConn:Disconnect()
+        ncConn = nil
     end
     local c = getChar()
     if c then
@@ -176,7 +158,6 @@ local function disableNoclip()
     end
 end
 
--- ── Полёт к монете + firetouchinterest ─────────────────────
 local function goToCoin(coin)
     if not coin or not coin.Parent then return end
     local root = getRoot()
@@ -184,18 +165,16 @@ local function goToCoin(coin)
 
     local dist = (root.Position - coin.Position).Magnitude
 
-    if dist >= TP_DISTANCE then
-        -- Далеко — сначала телепортируемся ближе
+    if dist >= TP_DIST then
         pcall(function()
-            root.CFrame = CFrame.new(coin.Position + Vector3.new(0, 3, 0))
+            root.CFrame = CFrame.new(coin.Position + Vector3.new(0, 4, 0))
         end)
         task.wait(0.05)
     end
 
-    -- Плавный tween к монете
-    if activeTween then
-        activeTween:Cancel()
-        activeTween = nil
+    if curTween then
+        curTween:Cancel()
+        curTween = nil
     end
 
     dist = (root.Position - coin.Position).Magnitude
@@ -203,87 +182,68 @@ local function goToCoin(coin)
     local info = TweenInfo.new(dur, Enum.EasingStyle.Linear)
     local goal = { CFrame = CFrame.new(coin.Position + Vector3.new(0, 2, 0)) }
 
-    activeTween = TweenService:Create(root, info, goal)
-    activeTween:Play()
+    curTween = TweenService:Create(root, info, goal)
+    curTween:Play()
 
-    -- firetouchinterest регистрирует сбор монеты на сервере
     pcall(function()
         firetouchinterest(root, coin, 0)
     end)
 
-    activeTween.Completed:Wait()
-    activeTween = nil
+    curTween.Completed:Wait()
+    curTween = nil
 
-    -- Повторно кидаем touch на случай если первый не сработал
     pcall(function()
         firetouchinterest(root, coin, 0)
     end)
 end
 
--- ── AntiAFK ────────────────────────────────────────────────
 local function antiAFK()
-    local ok = pcall(function()
+    pcall(function()
         local GC = getconnections or get_signal_cons
         if GC then
-            for _, v in pairs(GC(LocalPlayer.Idled)) do
-                if v.Disable then
-                    v:Disable()
-                elseif v.Disconnect then
-                    v:Disconnect()
-                end
+            for _, v in pairs(GC(LP.Idled)) do
+                if v.Disable then v:Disable()
+                elseif v.Disconnect then v:Disconnect() end
             end
-        end
-    end)
-    if not ok then
-        pcall(function()
+        else
             local VU = cloneref(game:GetService("VirtualUser"))
-            LocalPlayer.Idled:Connect(function()
+            LP.Idled:Connect(function()
                 VU:CaptureController()
                 VU:ClickButton2(Vector2.new())
             end)
-        end)
-    end
+        end
+    end)
 end
 
--- ── Слушаем события MM2 ────────────────────────────────────
 pcall(function()
-    local remotes = RS:WaitForChild("Remotes", 5)
-    if not remotes then return end
-    local gameplay = remotes:WaitForChild("Gameplay", 5)
-    if not gameplay then return end
+    local rem = RS:WaitForChild("Remotes", 5)
+    if not rem then return end
+    local gp = rem:WaitForChild("Gameplay", 5)
+    if not gp then return end
 
-    -- Раунд начался
-    local rsEvent = gameplay:FindFirstChild("RoundStart")
-    if rsEvent then
-        rsEvent.OnClientEvent:Connect(function()
-            farmActive = true
-            print("[MM2Hub] Round started - farming!")
+    local rsEv = gp:FindFirstChild("RoundStart")
+    if rsEv then
+        rsEv.OnClientEvent:Connect(function()
+            farmOn = true
+            print("[Hub] Round start - farming")
         end)
     end
 
-    -- Раунд закончился
-    local reEvent = gameplay:FindFirstChild("RoundEndFade")
-    if reEvent then
-        reEvent.OnClientEvent:Connect(function()
-            farmActive = false
-            if activeTween then
-                activeTween:Cancel()
-                activeTween = nil
-            end
+    local reEv = gp:FindFirstChild("RoundEndFade")
+    if reEv then
+        reEv.OnClientEvent:Connect(function()
+            farmOn = false
+            if curTween then curTween:Cancel() curTween = nil end
             Stats.Rounds = Stats.Rounds + 1
-            print("[MM2Hub] Round ended.")
         end)
     end
 
-    -- Монета собрана (отслеживаем реальный счётчик)
-    local ccEvent = gameplay:FindFirstChild("CoinCollected")
-    if ccEvent then
-        ccEvent.OnClientEvent:Connect(function(coinType, current, maxCoins)
+    local ccEv = gp:FindFirstChild("CoinCollected")
+    if ccEv then
+        ccEv.OnClientEvent:Connect(function(_, current, maxC)
             Stats.Coins = tonumber(current) or Stats.Coins
-            -- Сумка полная — убиваем себя для сброса
-            if State.AutoReset and tonumber(current) == tonumber(maxCoins) then
-                farmActive = false
-                print("[MM2Hub] Bag full! Resetting...")
+            if State.AutoReset and tonumber(current) == tonumber(maxC) then
+                farmOn = false
                 task.wait(0.5)
                 pcall(function()
                     local h = getHum()
@@ -294,20 +254,18 @@ pcall(function()
     end
 end)
 
--- ── GUI ────────────────────────────────────────────────────
 local function buildGUI()
-    local old = LocalPlayer.PlayerGui:FindFirstChild("MM2FarmHub")
+    local old = LP.PlayerGui:FindFirstChild("MM2Hub")
     if old then old:Destroy() end
 
     local sg = Instance.new("ScreenGui")
-    sg.Name           = "MM2FarmHub"
+    sg.Name           = "MM2Hub"
     sg.ResetOnSpawn   = false
     sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    sg.Parent         = LocalPlayer.PlayerGui
+    sg.Parent         = LP.PlayerGui
 
-    -- Главный фрейм
     local frame = Instance.new("Frame")
-    frame.Size                   = UDim2.new(0, 235, 0, 310)
+    frame.Size                   = UDim2.new(0, 230, 0, 305)
     frame.Position               = UDim2.new(0, 10, 0.25, 0)
     frame.BackgroundColor3       = Color3.fromRGB(14, 14, 20)
     frame.BackgroundTransparency = 0.08
@@ -315,7 +273,6 @@ local function buildGUI()
     frame.Parent                 = sg
     Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
 
-    -- Заголовок
     local hdr = Instance.new("Frame")
     hdr.Size             = UDim2.new(1, 0, 0, 40)
     hdr.BackgroundColor3 = Color3.fromRGB(25, 110, 245)
@@ -330,67 +287,63 @@ local function buildGUI()
     hdrFix.BorderSizePixel  = 0
     hdrFix.Parent           = hdr
 
-    local titleLbl = Instance.new("TextLabel")
-    titleLbl.Size             = UDim2.new(1, -50, 1, 0)
-    titleLbl.Position         = UDim2.new(0, 12, 0, 0)
-    titleLbl.BackgroundTransparency = 1
-    titleLbl.Text             = "MM2 Farm Hub"
-    titleLbl.TextColor3       = Color3.new(1, 1, 1)
-    titleLbl.TextSize         = 15
-    titleLbl.Font             = Enum.Font.GothamBold
-    titleLbl.TextXAlignment   = Enum.TextXAlignment.Left
-    titleLbl.Parent           = hdr
+    local titleL = Instance.new("TextLabel")
+    titleL.Size             = UDim2.new(1, -50, 1, 0)
+    titleL.Position         = UDim2.new(0, 12, 0, 0)
+    titleL.BackgroundTransparency = 1
+    titleL.Text             = "MM2 Farm Hub"
+    titleL.TextColor3       = Color3.new(1, 1, 1)
+    titleL.TextSize         = 15
+    titleL.Font             = Enum.Font.GothamBold
+    titleL.TextXAlignment   = Enum.TextXAlignment.Left
+    titleL.Parent           = hdr
 
-    local closeBtn = Instance.new("TextButton")
-    closeBtn.Size             = UDim2.new(0, 32, 0, 32)
-    closeBtn.Position         = UDim2.new(1, -36, 0, 4)
-    closeBtn.BackgroundColor3 = Color3.fromRGB(215, 45, 45)
-    closeBtn.Text             = "X"
-    closeBtn.TextColor3       = Color3.new(1, 1, 1)
-    closeBtn.TextSize         = 14
-    closeBtn.Font             = Enum.Font.GothamBold
-    closeBtn.BorderSizePixel  = 0
-    closeBtn.Parent           = hdr
-    Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
-    closeBtn.MouseButton1Click:Connect(function()
-        sg:Destroy()
-    end)
+    local xBtn = Instance.new("TextButton")
+    xBtn.Size             = UDim2.new(0, 32, 0, 32)
+    xBtn.Position         = UDim2.new(1, -36, 0, 4)
+    xBtn.BackgroundColor3 = Color3.fromRGB(210, 45, 45)
+    xBtn.Text             = "X"
+    xBtn.TextColor3       = Color3.new(1, 1, 1)
+    xBtn.TextSize         = 14
+    xBtn.Font             = Enum.Font.GothamBold
+    xBtn.BorderSizePixel  = 0
+    xBtn.Parent           = hdr
+    Instance.new("UICorner", xBtn).CornerRadius = UDim.new(0, 6)
+    xBtn.MouseButton1Click:Connect(function() sg:Destroy() end)
 
-    -- Drag
-    local dragging  = false
-    local dragStart = nil
-    local startPos  = nil
+    local drag = false
+    local dSt  = nil
+    local dPos = nil
 
     hdr.InputBegan:Connect(function(inp)
         if inp.UserInputType == Enum.UserInputType.Touch or
            inp.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging  = true
-            dragStart = inp.Position
-            startPos  = frame.Position
+            drag = true
+            dSt  = inp.Position
+            dPos = frame.Position
         end
     end)
 
     hdr.InputEnded:Connect(function(inp)
         if inp.UserInputType == Enum.UserInputType.Touch or
            inp.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
+            drag = false
         end
     end)
 
     UIS.InputChanged:Connect(function(inp)
-        if dragging then
+        if drag then
             if inp.UserInputType == Enum.UserInputType.Touch or
                inp.UserInputType == Enum.UserInputType.MouseMove then
-                local delta = inp.Position - dragStart
+                local d = inp.Position - dSt
                 frame.Position = UDim2.new(
-                    startPos.X.Scale, startPos.X.Offset + delta.X,
-                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                    dPos.X.Scale, dPos.X.Offset + d.X,
+                    dPos.Y.Scale, dPos.Y.Offset + d.Y
                 )
             end
         end
     end)
 
-    -- Блок статы
     local sf = Instance.new("Frame")
     sf.Size             = UDim2.new(1, -16, 0, 78)
     sf.Position         = UDim2.new(0, 8, 0, 48)
@@ -399,7 +352,7 @@ local function buildGUI()
     sf.Parent           = frame
     Instance.new("UICorner", sf).CornerRadius = UDim.new(0, 8)
 
-    local function mkLbl(txt, y)
+    local function mkL(txt, y)
         local l = Instance.new("TextLabel")
         l.Size             = UDim2.new(1, -10, 0, 22)
         l.Position         = UDim2.new(0, 8, 0, y)
@@ -413,12 +366,11 @@ local function buildGUI()
         return l
     end
 
-    local lCoins  = mkLbl("Монет:   0",  4)
-    local lFlings = mkLbl("Флингов: 0", 27)
-    local lRole   = mkLbl("Роль:    —", 50)
+    local lC = mkL("Coins:  0",   4)
+    local lF = mkL("Flings: 0",  27)
+    local lR = mkL("Role:   ?",  50)
 
-    -- Кнопки
-    local function mkBtn(label, key, y, cOn, cOff)
+    local function mkBtn(lbl, key, y, cOn, cOff)
         local b = Instance.new("TextButton")
         b.Size             = UDim2.new(1, -16, 0, 48)
         b.Position         = UDim2.new(0, 8, 0, y)
@@ -432,10 +384,10 @@ local function buildGUI()
         local function upd()
             if State[key] then
                 b.BackgroundColor3 = cOn
-                b.Text = label .. "  [ON]"
+                b.Text = lbl .. "  [ON]"
             else
                 b.BackgroundColor3 = cOff
-                b.Text = label .. "  [OFF]"
+                b.Text = lbl .. "  [OFF]"
             end
         end
         upd()
@@ -443,99 +395,90 @@ local function buildGUI()
         b.MouseButton1Click:Connect(function()
             State[key] = not State[key]
             if key == "NoClip" then
-                if State.NoClip then enableNoclip() else disableNoclip() end
+                if State.NoClip then enableNC() else disableNC() end
             end
             upd()
         end)
     end
 
-    mkBtn("FARM COINS",  "CoinFarm",   134, Color3.fromRGB(28,155,55),  Color3.fromRGB(70,70,70))
-    mkBtn("COMBAT",      "Combat",     190, Color3.fromRGB(195,55,55),  Color3.fromRGB(70,70,70))
-    mkBtn("NOCLIP",      "NoClip",     246, Color3.fromRGB(95,55,200),  Color3.fromRGB(70,70,70))
+    mkBtn("FARM COINS", "CoinFarm",  134, Color3.fromRGB(28,155,55),  Color3.fromRGB(65,65,65))
+    mkBtn("COMBAT",     "Combat",    190, Color3.fromRGB(195,55,55),  Color3.fromRGB(65,65,65))
+    mkBtn("NOCLIP",     "NoClip",    246, Color3.fromRGB(95,55,200),  Color3.fromRGB(65,65,65))
 
-    -- Обновление статы
     task.spawn(function()
         while sg and sg.Parent do
             task.wait(0.5)
             pcall(function()
-                lCoins.Text  = "Монет:   " .. tostring(Stats.Coins)
-                lFlings.Text = "Флингов: " .. tostring(Stats.Flings)
+                lC.Text = "Coins:  " .. tostring(Stats.Coins)
+                lF.Text = "Flings: " .. tostring(Stats.Flings)
                 local r = myRole()
-                if r == "Murderer" then
-                    lRole.Text      = "Роль: Убийца"
-                    lRole.TextColor3 = Color3.fromRGB(255, 75, 75)
-                elseif r == "Sheriff" then
-                    lRole.Text      = "Роль: Шериф"
-                    lRole.TextColor3 = Color3.fromRGB(75, 135, 255)
+                if r == "M" then
+                    lR.Text      = "Role: Murderer"
+                    lR.TextColor3 = Color3.fromRGB(255, 75, 75)
+                elseif r == "S" then
+                    lR.Text      = "Role: Sheriff"
+                    lR.TextColor3 = Color3.fromRGB(75, 135, 255)
                 else
-                    lRole.Text      = "Роль: Невин."
-                    lRole.TextColor3 = Color3.fromRGB(75, 215, 75)
+                    lR.Text      = "Role: Innocent"
+                    lR.TextColor3 = Color3.fromRGB(75, 215, 75)
                 end
             end)
         end
     end)
 end
 
--- ── Главный цикл ───────────────────────────────────────────
 task.spawn(function()
     task.wait(3)
     buildGUI()
-    enableNoclip()
+    enableNC()
     antiAFK()
-    farmActive = true   -- начинаем сразу, не ждём события
-    print("[MM2Hub] Started!")
+    farmOn = true
+    print("[Hub] MM2 Farm Hub loaded!")
 
     while true do
-        task.wait(rnd(0.05, 0.15))
+        task.wait(rnd(0.05, 0.12))
 
-        -- Боёвка
-        if State.Combat and isAlive() then
+        if State.Combat and alive() then
             local now = tick()
-            if now - lastCombat >= COMBAT_DELAY then
+            if now - lastCmb >= CMB_DELAY then
                 local tgt = findTarget()
                 if tgt and tgt.Character then
                     local tr = tgt.Character:FindFirstChild("HumanoidRootPart")
                     if tr then
                         pcall(function()
-                            local f = FLING_FORCE
+                            local f = FLING_F
                             tr.AssemblyLinearVelocity = Vector3.new(
                                 rnd(-f, f), f * 1.3, rnd(-f, f)
                             )
                         end)
                         Stats.Flings = Stats.Flings + 1
-                        lastCombat = now
+                        lastCmb = now
                     end
                 end
             end
         end
 
-        -- Фарм
-        if State.CoinFarm and farmActive and isAlive() then
+        if State.CoinFarm and farmOn and alive() then
             local coin, dist = nearestCoin()
             if coin then
                 goToCoin(coin)
             else
-                -- Монет нет — ждём
                 task.wait(1)
             end
         end
     end
 end)
 
--- Ресспавн
-LocalPlayer.CharacterRemoving:Connect(function()
-    if activeTween then
-        activeTween:Cancel()
-        activeTween = nil
-    end
-    disableNoclip()
+LP.CharacterRemoving:Connect(function()
+    if curTween then curTween:Cancel() curTween = nil end
+    disableNC()
 end)
 
-LocalPlayer.CharacterAdded:Connect(function()
+LP.CharacterAdded:Connect(function()
     task.wait(1.5)
-    farmActive = true
-    if State.NoClip then enableNoclip() end
-    print("[MM2Hub] Respawned, continuing...")
+    farmOn = true
+    if State.NoClip then enableNC() end
+    print("[Hub] Respawned.")
 end)
 
-print("[MM2Hub] Loaded. GUI in 3s.")
+print("[Hub] Loaded.")
