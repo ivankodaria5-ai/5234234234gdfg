@@ -231,6 +231,92 @@ local function superFlingMurderer()
     end)
 end
 
+-- Sheriff: fly to murderer and shoot with gun
+local function shootMurderer()
+    local murderer = nil
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LP and plr.Character and getRole(plr) == "M" then
+            murderer = plr
+            break
+        end
+    end
+    if not murderer or not murderer.Character then
+        print("[Hub] Murderer not found")
+        return false
+    end
+
+    local mHRP = murderer.Character:FindFirstChild("HumanoidRootPart")
+    if not mHRP then return false end
+
+    -- Find gun in character or backpack
+    local char = LP.Character
+    local hum  = getHum()
+    local root = getRoot()
+    if not char or not hum or not root then return false end
+
+    local gun = char:FindFirstChild("Gun") or LP.Backpack:FindFirstChild("Gun")
+    if not gun then
+        print("[Hub] No gun found")
+        return false
+    end
+
+    -- Equip gun if it's still in backpack
+    if gun.Parent == LP.Backpack then
+        pcall(function() hum:EquipTool(gun) end)
+        task.wait(0.4)
+    end
+
+    -- Fly close to murderer (within ~15 studs) using tween
+    local dist = (root.Position - mHRP.Position).Magnitude
+    if dist > 18 then
+        local nearPos = mHRP.Position + (root.Position - mHRP.Position).Unit * 12
+        local dur = math.max(0.3, dist / 40)
+        local tw = TweenService:Create(root, TweenInfo.new(dur, Enum.EasingStyle.Linear), {
+            CFrame = CFrame.new(nearPos)
+        })
+        tw:Play()
+        tw.Completed:Wait()
+    end
+
+    -- Face the murderer
+    pcall(function()
+        root.CFrame = CFrame.lookAt(root.Position, mHRP.Position)
+    end)
+    task.wait(0.1)
+
+    -- Try to fire via RemoteEvents inside the gun tool
+    local fired = false
+    for _, v in pairs(gun:GetDescendants()) do
+        if v:IsA("RemoteEvent") then
+            pcall(function()
+                v:FireServer(mHRP.CFrame.Position)
+                fired = true
+            end)
+        end
+    end
+
+    -- Also try known MM2 gun remotes in ReplicatedStorage
+    pcall(function()
+        local rem = RS:FindFirstChild("Remotes")
+        if rem then
+            local gp = rem:FindFirstChild("Gameplay")
+            if gp then
+                local fireEv = gp:FindFirstChild("FireGun") or gp:FindFirstChild("GunFired")
+                if fireEv then
+                    fireEv:FireServer(mHRP.CFrame.Position)
+                    fired = true
+                end
+            end
+        end
+    end)
+
+    -- Fallback: activate the tool directly
+    pcall(function() gun:Activate() end)
+
+    print("[Hub] Sheriff shot at murderer! fired=" .. tostring(fired))
+    return true
+end
+
 -- Safe reset (respawn character)
 local function safeReset(reason)
     if resetting then return end
@@ -475,15 +561,22 @@ pcall(function()
                         end)
                     end
                 elseif role == "S" then
-                    -- Sheriff: try to shoot murderer (fling as backup)
-                    superFlingMurderer()
-                    task.wait(rnd(0.8, 1.2))
-                    if State.AutoReset then
-                        pcall(function()
-                            local h = getHum()
-                            if h then h.Health = 0 end
-                        end)
-                    end
+                    -- Sheriff: fly to murderer and shoot, then reset
+                    task.spawn(function()
+                        local shot = shootMurderer()
+                        task.wait(rnd(0.5, 1.0))
+                        if not shot then
+                            -- Gun didn't work, fling as fallback
+                            superFlingMurderer()
+                            task.wait(rnd(0.5, 1.0))
+                        end
+                        if State.AutoReset then
+                            pcall(function()
+                                local h = getHum()
+                                if h then h.Health = 0 end
+                            end)
+                        end
+                    end)
                 else
                     -- Murderer: just reset for next bag
                     if State.AutoReset then
