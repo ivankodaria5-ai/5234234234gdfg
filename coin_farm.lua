@@ -55,6 +55,7 @@ local hopStart    = tick()
 local hopTimerLbl = nil
 local roundActive   = false
 local roundEndDone  = false
+local bagFull       = false   -- true when 40 coins collected this round
 local joinedAt      = tick()  -- time script was loaded
 
 -- Utility
@@ -430,6 +431,7 @@ pcall(function()
             end
             roundActive  = true
             roundEndDone = false
+            bagFull      = false
             farmOn       = true
             print("[Hub] Round started - farming!")
         end)
@@ -457,7 +459,8 @@ pcall(function()
         ccEv.OnClientEvent:Connect(function(_, current, maxC)
             Stats.Coins = tonumber(current) or Stats.Coins
             if tonumber(current) == tonumber(maxC) then
-                farmOn = false
+                farmOn   = false
+                bagFull  = true
                 print("[Hub] Bag full!")
                 local role = myRole()
                 if role == "I" then
@@ -783,15 +786,19 @@ end
 LP.CharacterAdded:Connect(function()
     task.wait(1.5)
     if State.NoClip then enableNC() end
-    if roundActive then
-        -- We died mid-round: teleport near coins and continue farming
+    if roundActive and not bagFull then
+        -- Died mid-round with coins left: snap near coins and continue
         task.wait(0.5)
         snapNearCoins()
         farmOn = true
         print("[Hub] Respawned mid-round - continuing farm")
     else
         farmOn = false
-        print("[Hub] Respawned - waiting for next round")
+        if bagFull then
+            print("[Hub] Bag full - waiting for next round")
+        else
+            print("[Hub] Respawned - waiting for next round")
+        end
     end
 end)
 
