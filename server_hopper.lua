@@ -2,7 +2,7 @@
 local PLACE_ID = 142823291
 local MM2_SCRIPT_URL = "https://raw.githubusercontent.com/Azura83/Murder-Mystery-2/refs/heads/main/Script.lua"
 local SCRIPT_URL = "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/server_hopper.lua"
-local HOP_INTERVAL = 60
+local HOP_INTERVAL = 1800
 
 -- Сервисы
 local TeleportService = game:GetService("TeleportService")
