@@ -160,23 +160,40 @@ local function disableNC()
     end
 end
 
--- Instant teleport to coin then fire touch
+-- Smooth tween flight to coin (human-like)
 local function walkToCoin(coin)
     if not coin or not coin.Parent then return false end
     local root = getRoot()
-    if not root then return false end
+    local hum  = getHum()
+    if not root or not hum then return false end
 
-    -- Teleport right next to the coin (small random offset so not inside it)
     local target = coin.Position + humanOffset()
-    root.CFrame = CFrame.new(target)
-    task.wait(0.05)
+    local dist   = (root.Position - target).Magnitude
 
-    -- Fire touch to register collection
-    pcall(function() firetouchinterest(root, coin, 0) end)
-    task.wait(0.02)
+    -- Speed with small jitter so it doesn't look robotic
+    local spd = CFG.WalkSpeed + rnd(-CFG.SpeedJitter, CFG.SpeedJitter)
+    spd = math.clamp(spd, 10, 22)
+    pcall(function() hum.WalkSpeed = spd end)
+
+    if curTween then curTween:Cancel() curTween = nil end
+    local dur  = math.max(0.2, dist / spd)
+    local info = TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+
+    curTween = TweenService:Create(root, info, { CFrame = CFrame.new(target) })
+    curTween:Play()
+
+    -- Fire touch as we approach mid-way
+    task.delay(dur * 0.7, function()
+        pcall(function() firetouchinterest(root, coin, 0) end)
+    end)
+
+    curTween.Completed:Wait()
+    curTween = nil
+
+    -- Final touch on arrival
     pcall(function() firetouchinterest(root, coin, 0) end)
 
-    -- Small pause between coins so server doesn't rate-limit
+    -- Pause between coins
     task.wait(rnd(CFG.MinPause, CFG.MaxPause))
     return true
 end
