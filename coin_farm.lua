@@ -855,36 +855,50 @@ LP.CharacterRemoving:Connect(function()
     end)
 end)
 
--- Teleport near a random coin in the CoinContainer (not on top of it)
+-- Teleport near coins - retries until map/coins are loaded, returns true if succeeded
 local function snapNearCoins()
-    local root = getRoot()
-    if not root then return end
-    local box = getCoinBox()
-    if not box then return end
-    -- Pick a random coin from the box to land near
-    local coins = {}
-    for _, c in pairs(box:GetChildren()) do
-        if c:IsA("BasePart") and c:FindFirstChild("TouchInterest") then
-            table.insert(coins, c)
+    for attempt = 1, 8 do
+        local root = getRoot()
+        if not root then task.wait(0.5) continue end
+        local box = getCoinBox()
+        if not box then task.wait(0.5) continue end
+        local coins = {}
+        for _, c in pairs(box:GetChildren()) do
+            if c:IsA("BasePart") and c:FindFirstChild("TouchInterest") then
+                table.insert(coins, c)
+            end
         end
+        if #coins == 0 then task.wait(0.5) continue end
+        -- Pick nearest coin so we start from best spot
+        local best, bestD = nil, math.huge
+        for _, c in pairs(coins) do
+            local d = (root.Position - c.Position).Magnitude
+            if d < bestD then best = c bestD = d end
+        end
+        local offset = Vector3.new(rnd(-3, 3), 2, rnd(-3, 3))
+        root.CFrame = CFrame.new(best.Position + offset)
+        print("[Hub] Snapped near coins (attempt " .. attempt .. ")")
+        return true
     end
-    if #coins == 0 then return end
-    local pick = coins[math.random(1, math.min(#coins, 10))]
-    -- Offset so we're beside it, not inside it
-    local offset = Vector3.new(rnd(-4, 4), 3, rnd(-4, 4))
-    root.CFrame = CFrame.new(pick.Position + offset)
-    print("[Hub] Snapped near coins after death")
+    print("[Hub] snapNearCoins failed - no coins found")
+    return false
 end
 
 LP.CharacterAdded:Connect(function()
     task.wait(1.5)
     if State.NoClip then enableNC() end
     if roundActive and not bagFull then
-        -- Died mid-round with coins left: snap near coins and continue
-        task.wait(0.5)
-        snapNearCoins()
-        farmOn = true
-        print("[Hub] Respawned mid-round - continuing farm")
+        -- Died mid-round with coins left: snap near coins and only then farm
+        task.wait(0.3)
+        local snapped = snapNearCoins()
+        if snapped then
+            farmOn = true
+            print("[Hub] Respawned mid-round - continuing farm")
+        else
+            -- Snap failed, don't fly from spawn - wait for next round
+            farmOn = false
+            print("[Hub] Snap failed - waiting for next round")
+        end
     else
         farmOn = false
         if bagFull then
