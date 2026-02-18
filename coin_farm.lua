@@ -14,14 +14,20 @@ local LP           = Players.LocalPlayer
 
 -- Settings
 local CFG = {
-    WalkSpeed    = 16,    -- normal human walkspeed (default is 16)
-    SpeedJitter  = 3,     -- random +/- added to walkspeed each coin
-    MinPause     = 0.3,   -- min pause after collecting a coin
-    MaxPause     = 0.8,   -- max pause after collecting a coin
-    TpDist       = 120,   -- teleport if coin is farther than this
+    WalkSpeed    = 16,
+    SpeedJitter  = 3,
+    MinPause     = 0.3,
+    MaxPause     = 0.8,
+    TpDist       = 120,
     FlingForce   = 80,
     CombatRange  = 60,
     CombatDelay  = 0.5,
+    -- Safety / watchdog
+    MaxVelocity  = 80,    -- if speed exceeds this we are being flung -> reset
+    MinY         = -80,   -- if Y drops below this we fell off map -> reset
+    MaxY         = 500,   -- if Y exceeds this we flew off -> reset
+    MaxMapDist   = 600,   -- if far from map center -> reset
+    FreefallSec  = 3,     -- seconds in freefall before reset
 }
 
 local State = {
@@ -37,10 +43,12 @@ local Stats = {
     Rounds = 0,
 }
 
-local farmOn   = false
-local curTween = nil
-local ncConn   = nil
-local lastCmb  = 0
+local farmOn      = false
+local curTween    = nil
+local ncConn      = nil
+local lastCmb     = 0
+local resetting   = false  -- prevent double-reset
+local freefallT   = 0      -- timestamp when freefall started
 
 -- Utility
 local function getChar() return LP.Character end
@@ -201,6 +209,79 @@ local function walkToCoin(coin)
     return true
 end
 
+-- Safe reset (respawn character)
+local function safeReset(reason)
+    if resetting then return end
+    resetting = true
+    if curTween then curTween:Cancel() curTween = nil end
+    farmOn = false
+    print("[Hub] Reset: " .. tostring(reason))
+    task.wait(rnd(0.3, 0.7))
+    pcall(function()
+        local h = getHum()
+        if h then h.Health = 0 end
+    end)
+    task.wait(0.5)
+    resetting = false
+end
+
+-- Watchdog: detects flung / fell off / stuck in air
+local function startWatchdog()
+    task.spawn(function()
+        while true do
+            task.wait(0.2)
+            if not alive() then continue end
+            local root = getRoot()
+            if not root then continue end
+
+            local pos = root.Position
+            local vel = root.AssemblyLinearVelocity
+
+            -- Fell below map
+            if pos.Y < CFG.MinY then
+                safeReset("fell off map Y=" .. math.floor(pos.Y))
+                continue
+            end
+
+            -- Flew too high (flung upward)
+            if pos.Y > CFG.MaxY then
+                safeReset("too high Y=" .. math.floor(pos.Y))
+                continue
+            end
+
+            -- Moving extremely fast = being flung
+            if vel.Magnitude > CFG.MaxVelocity then
+                safeReset("flung vel=" .. math.floor(vel.Magnitude))
+                continue
+            end
+
+            -- Too far from any map (walked off or flung sideways)
+            local box = getCoinBox()
+            if box then
+                local mapCenter = box.Parent:GetPivot().Position
+                local mapDist   = (pos - mapCenter).Magnitude
+                if mapDist > CFG.MaxMapDist then
+                    safeReset("too far from map dist=" .. math.floor(mapDist))
+                    continue
+                end
+            end
+
+            -- Stuck in freefall for too long
+            local hum = getHum()
+            if hum and hum:GetState() == Enum.HumanoidStateType.Freefall then
+                if freefallT == 0 then
+                    freefallT = tick()
+                elseif tick() - freefallT > CFG.FreefallSec then
+                    freefallT = 0
+                    safeReset("stuck in freefall")
+                end
+            else
+                freefallT = 0
+            end
+        end
+    end)
+end
+
 -- AntiAFK
 local function antiAFK()
     pcall(function()
@@ -241,6 +322,9 @@ pcall(function()
             farmOn = false
             if curTween then curTween:Cancel() curTween = nil end
             Stats.Rounds = Stats.Rounds + 1
+            -- Reset at end of round so we start fresh, not flung
+            task.wait(rnd(1.5, 2.5))
+            safeReset("round ended")
         end)
     end
 
@@ -429,6 +513,7 @@ task.spawn(function()
     buildGUI()
     enableNC()
     antiAFK()
+    startWatchdog()
     farmOn = true
     print("[Hub] Loaded!")
 
