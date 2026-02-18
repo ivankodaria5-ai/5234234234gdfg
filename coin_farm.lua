@@ -53,8 +53,9 @@ local resetting   = false
 local hopQueued   = false
 local hopStart    = tick()
 local hopTimerLbl = nil
-local roundActive  = false   -- true only during active round
-local roundEndDone = false   -- flag: already reset this round end
+local roundActive   = false
+local roundEndDone  = false
+local readyToFarm   = false  -- only true after we've seen at least one round end
 
 -- Utility
 local function getChar() return LP.Character end
@@ -440,6 +441,14 @@ pcall(function()
     local rsEv = gp:FindFirstChild("RoundStart")
     if rsEv then
         rsEv.OnClientEvent:Connect(function()
+            if not readyToFarm then
+                -- We joined mid-round or haven't seen a full cycle yet
+                -- Mark round as active but don't farm yet
+                roundActive  = true
+                roundEndDone = false
+                print("[Hub] Round in progress (joined mid-game) - waiting for round end")
+                return
+            end
             roundActive  = true
             roundEndDone = false
             farmOn       = true
@@ -450,17 +459,17 @@ pcall(function()
     local reEv = gp:FindFirstChild("RoundEndFade")
     if reEv then
         reEv.OnClientEvent:Connect(function()
-            if roundEndDone then return end  -- prevent double fire
+            if roundEndDone then return end
             roundEndDone = true
             roundActive  = false
             farmOn       = false
+            readyToFarm  = true  -- now we're synced, next round we farm
             if curTween then curTween:Cancel() curTween = nil end
             Stats.Rounds = Stats.Rounds + 1
-            -- ONE reset after round ends, then wait for next RoundStart
             task.spawn(function()
                 task.wait(rnd(1.0, 2.0))
                 safeReset("round ended")
-                print("[Hub] Waiting for next round...")
+                print("[Hub] Ready - waiting for next round to farm...")
             end)
         end)
     end
