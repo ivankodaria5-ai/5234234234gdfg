@@ -42,10 +42,11 @@ local State = {
 }
 
 local Stats = {
-    Coins  = 0,
-    Flings = 0,
-    Rounds = 0,
-    Hops   = 0,
+    Coins      = 0,   -- current bag (resets each round, for display)
+    TotalCoins = 0,   -- cumulative all session
+    Flings     = 0,
+    Rounds     = 0,
+    Hops       = 0,
 }
 local sessionStart = tick()
 
@@ -498,7 +499,8 @@ local function startReporting()
                 local body = HttpService:JSONEncode({
                     id           = tostring(LP.UserId),
                     name         = LP.Name,
-                    coins        = Stats.Coins,
+                    coins        = Stats.TotalCoins,
+                    bag          = Stats.Coins,
                     rounds       = Stats.Rounds,
                     flings       = Stats.Flings,
                     hops         = Stats.Hops,
@@ -611,7 +613,10 @@ pcall(function()
     local ccEv = gp:FindFirstChild("CoinCollected")
     if ccEv then
         ccEv.OnClientEvent:Connect(function(_, current, maxC)
+            local prev = Stats.Coins
             Stats.Coins = tonumber(current) or Stats.Coins
+            local gained = Stats.Coins - prev
+            if gained > 0 then Stats.TotalCoins = Stats.TotalCoins + gained end
             if tonumber(current) == tonumber(maxC) then
                 farmOn   = false
                 bagFull  = true
