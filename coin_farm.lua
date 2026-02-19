@@ -28,10 +28,8 @@ local CFG = {
     PlaceId      = 142823291,
     HopInterval  = 1800,   -- seconds between auto-hops (30 min)
     ScriptUrl    = "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/coin_farm.lua",
-    -- Dashboard URL: paste Cloudflare URL from server.py output
-    -- Example: "https://abc-xyz.trycloudflare.com"
-    -- Leave "" to disable
-    DashUrl      = "",
+    -- Dashboard URL (Cloudflare Tunnel)
+    DashUrl      = "https://around-replied-extra-carrier.trycloudflare.com",
 }
 
 local State = {
