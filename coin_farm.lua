@@ -960,25 +960,32 @@ end
 LP.CharacterAdded:Connect(function()
     task.wait(1.5)
     if State.NoClip then enableNC() end
-    if roundActive and not bagFull then
-        -- Died mid-round with coins left: snap near coins and only then farm
-        task.wait(0.3)
-        local snapped = snapNearCoins()
-        if snapped then
-            farmOn = true
-            print("[Hub] Respawned mid-round - continuing farm")
+
+    if roundActive then
+        -- Always fling murderer on death to end round faster
+        task.spawn(function()
+            task.wait(0.5)
+            superFlingMurderer()
+        end)
+
+        if not bagFull then
+            -- Coins still available: snap near them and continue farming
+            task.wait(0.3)
+            local snapped = snapNearCoins()
+            if snapped then
+                farmOn = true
+                print("[Hub] Respawned mid-round - farming + flinged murderer")
+            else
+                farmOn = false
+                print("[Hub] Snap failed - waiting for next round")
+            end
         else
-            -- Snap failed, don't fly from spawn - wait for next round
             farmOn = false
-            print("[Hub] Snap failed - waiting for next round")
+            print("[Hub] Bag full - flinged murderer, waiting for next round")
         end
     else
         farmOn = false
-        if bagFull then
-            print("[Hub] Bag full - waiting for next round")
-        else
-            print("[Hub] Respawned - waiting for next round")
-        end
+        print("[Hub] Respawned - waiting for next round")
     end
 end)
 
