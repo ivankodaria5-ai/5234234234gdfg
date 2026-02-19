@@ -28,6 +28,9 @@ local CFG = {
     PlaceId      = 142823291,
     HopInterval  = 1800,   -- seconds between auto-hops (30 min)
     ScriptUrl    = "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/coin_farm.lua",
+    -- Dashboard: set to your PC's local IP (shown when you run server.py)
+    -- Leave empty ("") to disable reporting
+    DashUrl      = "",
 }
 
 local State = {
@@ -43,7 +46,9 @@ local Stats = {
     Coins  = 0,
     Flings = 0,
     Rounds = 0,
+    Hops   = 0,
 }
+local sessionStart = tick()
 
 local farmOn      = false
 local curTween    = nil
@@ -438,6 +443,7 @@ local function doServerHop()
     print("[Hub] Looking for server to hop...")
     local serverId = findServer()
     queueScript()
+    Stats.Hops = Stats.Hops + 1
     pcall(function()
         if serverId then
             print("[Hub] Hopping to: " .. serverId)
@@ -475,6 +481,40 @@ local function startHopTimer()
                 hopQueued = false
                 doServerHop()
             end
+        end
+    end)
+end
+
+-- Send stats to dashboard server every 15 seconds
+local function startReporting()
+    if CFG.DashUrl == "" then return end
+    task.spawn(function()
+        while true do
+            task.wait(15)
+            pcall(function()
+                local role = myRole()
+                local status = "Lobby"
+                if farmOn then status = "Farming"
+                elseif roundActive then status = "Idle" end
+                local body = HttpService:JSONEncode({
+                    id           = tostring(LP.UserId),
+                    name         = LP.Name,
+                    coins        = Stats.Coins,
+                    rounds       = Stats.Rounds,
+                    flings       = Stats.Flings,
+                    hops         = Stats.Hops,
+                    status       = status,
+                    role         = role,
+                    bag_full     = bagFull,
+                    session_start = sessionStart,
+                })
+                request({
+                    Url     = CFG.DashUrl .. "/update",
+                    Method  = "POST",
+                    Headers = { ["Content-Type"] = "application/json" },
+                    Body    = body,
+                })
+            end)
         end
     end)
 end
@@ -839,6 +879,7 @@ task.spawn(function()
     enableNC()
     antiAFK()
     startHopTimer()
+    startReporting()
     if State.AntiFling then startAntiFling() end
     print("[Hub] Loaded - waiting for RoundStart!")
 
