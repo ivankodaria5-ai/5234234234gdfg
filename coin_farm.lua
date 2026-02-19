@@ -28,9 +28,8 @@ local CFG = {
     PlaceId      = 142823291,
     HopInterval  = 1800,   -- seconds between auto-hops (30 min)
     ScriptUrl    = "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/coin_farm.lua",
-    -- Dashboard: set to your PC's local IP (shown when you run server.py)
-    -- Leave empty ("") to disable reporting
-    DashUrl      = "",
+    -- Dashboard server IP (set by user)
+    DashUrl      = "http://192.168.2.103:5000",
 }
 
 local State = {
