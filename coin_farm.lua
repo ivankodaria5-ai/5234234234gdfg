@@ -396,34 +396,51 @@ local function stopAntiFling()
     clearAFOtherConns()
 end
 
--- Server hop: find a random server with free slots
-local function findServer()
-    local servers = {}
-    local cursor  = ""
-    local tries   = 0
+-- Server hop: find a server with free slots (requires buffer to avoid error 772)
+-- blacklist = table of server IDs to skip (previously failed)
+local function findServer(blacklist)
+    blacklist = blacklist or {}
+    local candidates = {}
+    local cursor = ""
+    local tries = 0
+    -- Require at least MIN_FREE_SLOTS free slots so the server won't fill up mid-teleport
+    local MIN_FREE_SLOTS = 3
     repeat
         tries = tries + 1
         local url = "https://games.roblox.com/v1/games/" .. CFG.PlaceId ..
-                    "/servers/Public?sortOrder=Desc&limit=100&cursor=" .. cursor
+                    "/servers/Public?sortOrder=Asc&excludeFullGames=true&limit=100" ..
+                    (cursor ~= "" and ("&cursor=" .. cursor) or "")
         local ok, data = pcall(function()
             local res = request({ Url = url, Method = "GET" })
             return HttpService:JSONDecode(res.Body)
         end)
         if ok and data and data.data then
             for _, sv in pairs(data.data) do
-                if sv.id ~= game.JobId and sv.playing < sv.maxPlayers then
-                    table.insert(servers, sv.id)
+                local id       = tostring(sv.id)
+                local playing  = tonumber(sv.playing)  or 999
+                local maxP     = tonumber(sv.maxPlayers) or 0
+                if id == game.JobId or maxP == 0 then continue end
+                -- Skip blacklisted servers (ones that already gave us 772)
+                local skip = false
+                for _, bl in pairs(blacklist) do
+                    if id == bl then skip = true; break end
+                end
+                if skip then continue end
+                -- Require at least MIN_FREE_SLOTS free slots as safety buffer
+                if playing + MIN_FREE_SLOTS <= maxP then
+                    table.insert(candidates, { id = id, playing = playing })
                 end
             end
             cursor = data.nextPageCursor or ""
         else
             break
         end
-    until cursor == "" or #servers >= 50 or tries >= 3
-    if #servers > 0 then
-        return servers[math.random(1, #servers)]
-    end
-    return nil
+    until cursor == "" or #candidates >= 20 or tries >= 3
+    if #candidates == 0 then return nil end
+    -- Sort by least crowded, pick randomly from the least-crowded half
+    table.sort(candidates, function(a, b) return a.playing < b.playing end)
+    local topN = math.max(1, math.floor(#candidates / 2))
+    return candidates[math.random(1, topN)].id
 end
 
 -- Queue our script to auto-run on the new server after teleport
@@ -442,18 +459,68 @@ end
 
 local function doServerHop()
     print("[Hub] Looking for server to hop...")
-    local serverId = findServer()
     queueScript()
     Stats.Hops = Stats.Hops + 1
-    pcall(function()
-        if serverId then
-            print("[Hub] Hopping to: " .. serverId)
-            TeleportService:TeleportToPlaceInstance(CFG.PlaceId, serverId, LP)
-        else
-            print("[Hub] No server found, random teleport")
-            TeleportService:Teleport(CFG.PlaceId, LP)
+
+    local blacklist    = {}   -- IDs of servers that caused 772 this hop cycle
+    local lastServerId = nil  -- last server we attempted (for blacklisting on failure)
+    local attempt      = 0
+    local failConn     -- TeleportInitFailed connection handle
+
+    local function tryHop()
+        attempt = attempt + 1
+        if attempt > 6 then
+            print("[Hub] Too many 772 retries, falling back to random teleport")
+            pcall(function() if failConn then failConn:Disconnect() end end)
+            pcall(function() TeleportService:Teleport(CFG.PlaceId, LP) end)
+            return
         end
+
+        lastServerId = findServer(blacklist)
+        if lastServerId then
+            print("[Hub] Hop attempt " .. attempt .. " → " .. lastServerId ..
+                  " (skipping " .. #blacklist .. " blacklisted)")
+            local ok, err = pcall(function()
+                TeleportService:TeleportToPlaceInstance(CFG.PlaceId, lastServerId, LP)
+            end)
+            if not ok then
+                -- Teleport call itself threw (rare), blacklist and retry
+                print("[Hub] TeleportToPlaceInstance error: " .. tostring(err))
+                if lastServerId then table.insert(blacklist, lastServerId) end
+                task.wait(2)
+                tryHop()
+            end
+            -- If pcall succeeded the teleport is pending; TeleportInitFailed will
+            -- fire if Roblox rejects it (e.g. error 772 server full)
+        else
+            print("[Hub] No servers found with free slot buffer, random teleport")
+            pcall(function() if failConn then failConn:Disconnect() end end)
+            pcall(function() TeleportService:Teleport(CFG.PlaceId, LP) end)
+        end
+    end
+
+    -- TeleportInitFailed fires when Roblox rejects the pending teleport (e.g. 772)
+    failConn = TeleportService.TeleportInitFailed:Connect(function(player, errCode, errMsg)
+        if player ~= LP then return end
+        print("[Hub] TeleportInitFailed code=" .. tostring(errCode) ..
+              " msg=" .. tostring(errMsg or ""))
+        -- Blacklist the server that just failed
+        if lastServerId then
+            print("[Hub] Blacklisting server: " .. lastServerId)
+            table.insert(blacklist, lastServerId)
+        end
+        task.spawn(function()
+            task.wait(1.5)  -- let autoCloseServerFull dismiss the dialog first
+            tryHop()
+        end)
     end)
+
+    -- Safety: always clean up listener after 90 s (prevents leak on success)
+    task.delay(90, function()
+        pcall(function() if failConn then failConn:Disconnect() end end)
+    end)
+
+    tryHop()
 end
 
 -- Server hop timer loop
@@ -486,13 +553,16 @@ local function startHopTimer()
     end)
 end
 
--- Auto-close "Server is full" and similar Roblox system dialogs
+-- Auto-close "Server is full" / "Teleport Failed" Roblox system dialogs.
+-- Returns true if a teleport-failure dialog was found and dismissed.
 local function autoCloseServerFull()
     task.spawn(function()
         while true do
             task.wait(1.5)
             pcall(function()
                 local cg = game:GetService("CoreGui")
+
+                -- Primary target: RobloxPromptGui (used for system notifications)
                 local prompt = cg:FindFirstChild("RobloxPromptGui", true)
                 if prompt then
                     for _, btn in pairs(prompt:GetDescendants()) do
@@ -501,28 +571,36 @@ local function autoCloseServerFull()
                             if t == "ok" or t == "okay" or t == "close" then
                                 btn.MouseButton1Click:Fire()
                                 pcall(function() btn:Activate() end)
-                                print("[Hub] Auto-closed dialog: " .. btn.Text)
+                                print("[Hub] Auto-closed RobloxPromptGui dialog")
                             end
                         end
                     end
                 end
+
+                -- Fallback: scan all CoreGui children for dialogs containing
+                -- "server is full" or "teleport failed" text
                 for _, gui in pairs(cg:GetChildren()) do
+                    local isTeleportFail = false
                     for _, elem in pairs(gui:GetDescendants()) do
                         if elem:IsA("TextLabel") or elem:IsA("TextBox") then
                             local t = string.lower(elem.Text or "")
-                            if string.find(t, "full") and string.find(t, "server") then
-                                local p = elem.Parent
-                                if p then
-                                    for _, btn in pairs(p:GetDescendants()) do
-                                        if btn:IsA("TextButton") then
-                                            local bt = string.lower(btn.Text or "")
-                                            if bt == "ok" or bt == "okay" then
-                                                btn.MouseButton1Click:Fire()
-                                                pcall(function() btn:Activate() end)
-                                                print("[Hub] Auto-closed server-full dialog")
-                                            end
-                                        end
-                                    end
+                            -- Match error 772 patterns
+                            if (string.find(t, "full") and string.find(t, "server")) or
+                               string.find(t, "teleport failed") or
+                               string.find(t, "772") then
+                                isTeleportFail = true
+                            end
+                        end
+                    end
+                    if isTeleportFail then
+                        -- Click any OK/Close button in this GUI
+                        for _, btn in pairs(gui:GetDescendants()) do
+                            if btn:IsA("TextButton") then
+                                local bt = string.lower(btn.Text or "")
+                                if bt == "ok" or bt == "okay" or bt == "close" then
+                                    btn.MouseButton1Click:Fire()
+                                    pcall(function() btn:Activate() end)
+                                    print("[Hub] Auto-closed teleport-fail dialog")
                                 end
                             end
                         end
