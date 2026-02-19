@@ -251,7 +251,8 @@ local function shootMurderer()
     end
 
     local mHRP = murderer.Character:FindFirstChild("HumanoidRootPart")
-    if not mHRP then return false end
+    local mHum = murderer.Character:FindFirstChild("Humanoid")
+    if not mHRP or not mHum or mHum.Health <= 0 then return false end
 
     -- Find gun in character or backpack
     local char = LP.Character
@@ -485,6 +486,77 @@ local function startHopTimer()
     end)
 end
 
+-- Auto-close "Server is full" and similar Roblox system dialogs
+local function autoCloseServerFull()
+    task.spawn(function()
+        while true do
+            task.wait(1.5)
+            pcall(function()
+                local cg = game:GetService("CoreGui")
+                local prompt = cg:FindFirstChild("RobloxPromptGui", true)
+                if prompt then
+                    for _, btn in pairs(prompt:GetDescendants()) do
+                        if btn:IsA("TextButton") then
+                            local t = string.lower(btn.Text or "")
+                            if t == "ok" or t == "okay" or t == "close" then
+                                btn.MouseButton1Click:Fire()
+                                pcall(function() btn:Activate() end)
+                                print("[Hub] Auto-closed dialog: " .. btn.Text)
+                            end
+                        end
+                    end
+                end
+                for _, gui in pairs(cg:GetChildren()) do
+                    for _, elem in pairs(gui:GetDescendants()) do
+                        if elem:IsA("TextLabel") or elem:IsA("TextBox") then
+                            local t = string.lower(elem.Text or "")
+                            if string.find(t, "full") and string.find(t, "server") then
+                                local p = elem.Parent
+                                if p then
+                                    for _, btn in pairs(p:GetDescendants()) do
+                                        if btn:IsA("TextButton") then
+                                            local bt = string.lower(btn.Text or "")
+                                            if bt == "ok" or bt == "okay" then
+                                                btn.MouseButton1Click:Fire()
+                                                pcall(function() btn:Activate() end)
+                                                print("[Hub] Auto-closed server-full dialog")
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+end
+
+-- Auto-reconnect when Roblox shows error/disconnect screen
+local function autoReconnect()
+    task.spawn(function()
+        while true do
+            task.wait(2)
+            pcall(function()
+                local cg = game:GetService("CoreGui")
+                for _, btn in pairs(cg:GetDescendants()) do
+                    if btn:IsA("TextButton") then
+                        local t = string.lower(btn.Text or "")
+                        if string.find(t, "reconnect") then
+                            btn.MouseButton1Click:Fire()
+                            pcall(function() btn:Activate() end)
+                            print("[Hub] Auto-reconnect clicked!")
+                            task.wait(12)
+                            return
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+end
+
 -- Send stats to dashboard server every 15 seconds
 local function startReporting()
     if CFG.DashUrl == "" then return end
@@ -497,24 +569,58 @@ local function startReporting()
                 if farmOn then status = "Farming"
                 elseif roundActive then status = "Idle" end
                 local body = HttpService:JSONEncode({
-                    id           = tostring(LP.UserId),
-                    name         = LP.Name,
-                    coins        = Stats.TotalCoins,
-                    bag          = Stats.Coins,
-                    rounds       = Stats.Rounds,
-                    flings       = Stats.Flings,
-                    hops         = Stats.Hops,
-                    status       = status,
-                    role         = role,
-                    bag_full     = bagFull,
+                    id            = tostring(LP.UserId),
+                    name          = LP.Name,
+                    coins         = Stats.TotalCoins,
+                    bag           = Stats.Coins,
+                    rounds        = Stats.Rounds,
+                    flings        = Stats.Flings,
+                    hops          = Stats.Hops,
+                    status        = status,
+                    role          = role,
+                    bag_full      = bagFull,
                     session_start = sessionStart,
+                    job_id        = tostring(game.JobId),
+                    state         = {
+                        CoinFarm  = State.CoinFarm,
+                        Combat    = State.Combat,
+                        NoClip    = State.NoClip,
+                        AutoReset = State.AutoReset,
+                        ServerHop = State.ServerHop,
+                        AntiFling = State.AntiFling,
+                    },
                 })
-                request({
+                local res = request({
                     Url     = CFG.DashUrl .. "/update",
                     Method  = "POST",
                     Headers = { ["Content-Type"] = "application/json" },
                     Body    = body,
                 })
+                if res and res.Body then
+                    local ok2, resp = pcall(function()
+                        return HttpService:JSONDecode(res.Body)
+                    end)
+                    if ok2 and resp and resp.commands then
+                        local cmds = resp.commands
+                        if cmds.CoinFarm  ~= nil then State.CoinFarm  = cmds.CoinFarm  end
+                        if cmds.Combat    ~= nil then State.Combat    = cmds.Combat    end
+                        if cmds.AutoReset ~= nil then State.AutoReset = cmds.AutoReset end
+                        if cmds.ServerHop ~= nil then State.ServerHop = cmds.ServerHop end
+                        if cmds.NoClip    ~= nil then
+                            State.NoClip = cmds.NoClip
+                            if State.NoClip then enableNC() else disableNC() end
+                        end
+                        if cmds.AntiFling ~= nil then
+                            State.AntiFling = cmds.AntiFling
+                            if State.AntiFling then startAntiFling() else stopAntiFling() end
+                        end
+                        if cmds.ForceHop then
+                            hopQueued = false
+                            hopStart  = tick() - CFG.HopInterval
+                            print("[Hub] ForceHop command received!")
+                        end
+                    end
+                end
             end)
         end
     end)
@@ -882,6 +988,8 @@ task.spawn(function()
     buildGUI()
     enableNC()
     antiAFK()
+    autoCloseServerFull()
+    autoReconnect()
     startHopTimer()
     startReporting()
     if State.AntiFling then startAntiFling() end
