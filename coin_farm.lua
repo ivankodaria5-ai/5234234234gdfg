@@ -28,10 +28,9 @@ local CFG = {
     PlaceId      = 142823291,
     HopInterval  = 1800,   -- seconds between auto-hops (30 min)
     ScriptUrl    = "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/coin_farm.lua",
-    -- Dashboard: set to your VPS IP or domain
-    -- Leave DashUrl = "" to disable reporting
-    DashUrl      = "http://YOUR_VPS_IP:5000",
-    DashKey      = "mm2secret123",
+    -- Dashboard: IP of PC from inside LDPlayer (10.0.3.2 = host PC)
+    -- Or use cloudflare public URL from start.bat for remote access
+    DashUrl      = "http://10.0.3.2:5000",
 }
 
 local State = {
@@ -498,24 +497,21 @@ local function startReporting()
                 if farmOn then status = "Farming"
                 elseif roundActive then status = "Idle" end
                 local body = HttpService:JSONEncode({
-                    id            = tostring(LP.UserId),
-                    name          = LP.Name,
-                    coins         = Stats.Coins,
-                    rounds        = Stats.Rounds,
-                    flings        = Stats.Flings,
-                    hops          = Stats.Hops,
-                    status        = status,
-                    role          = role,
-                    bag_full      = bagFull,
+                    id           = tostring(LP.UserId),
+                    name         = LP.Name,
+                    coins        = Stats.Coins,
+                    rounds       = Stats.Rounds,
+                    flings       = Stats.Flings,
+                    hops         = Stats.Hops,
+                    status       = status,
+                    role         = role,
+                    bag_full     = bagFull,
                     session_start = sessionStart,
                 })
                 request({
                     Url     = CFG.DashUrl .. "/update",
                     Method  = "POST",
-                    Headers = {
-                        ["Content-Type"] = "application/json",
-                        ["X-Api-Key"]    = CFG.DashKey,
-                    },
+                    Headers = { ["Content-Type"] = "application/json" },
                     Body    = body,
                 })
             end)
