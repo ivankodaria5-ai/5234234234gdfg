@@ -29,7 +29,7 @@ local CFG = {
     HopInterval  = 1800,   -- seconds between auto-hops (30 min)
     ScriptUrl    = "https://raw.githubusercontent.com/ivankodaria5-ai/5234234234gdfg/refs/heads/main/coin_farm.lua",
     -- Dashboard URL (Cloudflare Tunnel)
-    DashUrl      = "https://export-petition-your-jul.trycloudflare.com",
+    DashUrl      = "https://branches-cumulative-desktops-bearing.trycloudflare.com",
 }
 
 local State = {
